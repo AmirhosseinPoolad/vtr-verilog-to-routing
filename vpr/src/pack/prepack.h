@@ -162,7 +162,7 @@ struct t_molecule_stats {
  * // Initialize device and atom netlist
  * // ...
  * Prepacker prepacker;
- * prepacker.init(atom_ctx.nlist, device_ctx.logical_block_types);
+ * prepacker.init(atom_ctx.netlist(), device_ctx.logical_block_types);
  * // ...
  * // Use the prepacked molecules.
  * // ...
@@ -342,4 +342,3 @@ private:
      */
     vtr::vector<MoleculeChainId, t_chain_info> chain_info_;
 };
-

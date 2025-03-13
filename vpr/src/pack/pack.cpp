@@ -21,6 +21,12 @@
 #include "vpr_types.h"
 #include "vtr_assert.h"
 #include "vtr_log.h"
+#include "vtr_time.h"
+#include "netlist_partitioner.h"
+
+#include "omp.h"
+
+#include <flat_placement_utils.h>
 
 namespace {
 
@@ -174,6 +180,8 @@ bool try_pack(const t_packer_opts& packer_opts,
               const Prepacker& prepacker,
               const PreClusterTimingManager& pre_cluster_timing_manager,
               const FlatPlacementInfo& flat_placement_info) {
+    vtr::ScopedFinishTimer t1("try_pack");
+    int thread_count = packer_opts.num_threads;
     const AtomContext& atom_ctx = g_vpr_ctx.atom();
     const DeviceContext& device_ctx = g_vpr_ctx.device();
     // The clusterer modifies the device context by increasing the size of the
@@ -236,68 +244,99 @@ bool try_pack(const t_packer_opts& packer_opts,
     // high_fanout_thresholds stores the threshold for nets to a block type to
     // be considered high fanout.
     t_pack_high_fanout_thresholds high_fanout_thresholds(packer_opts.high_fanout_threshold);
-
-    bool allow_unrelated_clustering = false;
-    if (packer_opts.allow_unrelated_clustering == e_unrelated_clustering::ON) {
-        allow_unrelated_clustering = true;
-    } else if (packer_opts.allow_unrelated_clustering == e_unrelated_clustering::OFF) {
-        allow_unrelated_clustering = false;
-    }
-
-    bool balance_block_type_util = false;
-    if (packer_opts.balance_block_type_utilization == e_balance_block_type_util::ON) {
-        balance_block_type_util = true;
-    } else if (packer_opts.balance_block_type_utilization == e_balance_block_type_util::OFF) {
-        balance_block_type_util = false;
-    }
-
-    int pack_iteration = 1;
+    
     // Initialize the cluster legalizer.
-    ClusterLegalizer cluster_legalizer(atom_ctx.netlist(),
-                                       prepacker,
-                                       lb_type_rr_graphs,
-                                       packer_opts.target_external_pin_util,
-                                       high_fanout_thresholds,
-                                       ClusterLegalizationStrategy::SKIP_INTRA_LB_ROUTE,
-                                       packer_opts.enable_pin_feasibility_filter,
-                                       arch.models,
-                                       packer_opts.pack_verbosity);
-
     // Construct the APPack Context.
-    APPackContext appack_ctx(flat_placement_info,
-                             ap_opts,
-                             device_ctx.logical_block_types,
-                             device_ctx.grid);
+    APPackContext appack_ctx(flat_placement_info, ap_opts, device_ctx.logical_block_types, device_ctx.grid);
 
-    // Initialize the greedy clusterer.
-    GreedyClusterer clusterer(packer_opts,
-                              analysis_opts,
-                              atom_ctx.netlist(),
-                              arch,
-                              high_fanout_thresholds,
-                              is_clock,
-                              is_global,
-                              pre_cluster_timing_manager,
-                              appack_ctx);
+    int num_partitions = packer_opts.num_partitions;
+
+    NetlistPartitioner partitioner(flat_placement_info, prepacker, atom_ctx, device_ctx);
+
+    e_partition_type partition_type;
+    if (flat_placement_info.valid ) {
+        packer_opts.weighted_partitioning ? partition_type = e_partition_type::SPATIAL_MIN_CUT : partition_type = e_partition_type::SPATIAL;
+    } else {
+        partition_type = e_partition_type::MIN_CUT;
+    }
+
+    NetlistPartition partition_map = partitioner.get_netlist_partition(partition_type, num_partitions);
+    
+    std::vector<std::unique_ptr<ClusterLegalizer>> cluster_legalizers;
+    std::vector<std::unique_ptr<GreedyClusterer>> clusterers;
+    
+    {
+    for (int i = 0; i < thread_count; i++) {
+        cluster_legalizers.push_back(std::make_unique<ClusterLegalizer>(atom_ctx.netlist(),
+        prepacker,
+        lb_type_rr_graphs,
+        packer_opts.target_external_pin_util,
+        high_fanout_thresholds,
+        ClusterLegalizationStrategy::SKIP_INTRA_LB_ROUTE,
+        packer_opts.enable_pin_feasibility_filter,
+        arch.models,
+        packer_opts.pack_verbosity,
+        std::ref(partition_map),
+        i));
+
+        clusterers.push_back(std::make_unique<GreedyClusterer>(packer_opts,
+            analysis_opts,
+            atom_ctx.netlist(),
+            arch,
+            high_fanout_thresholds,
+            is_clock,
+            is_global,
+            pre_cluster_timing_manager,
+            appack_ctx,
+            std::ref(partition_map),
+            i));
+    }
+    }
+
+    VTR_LOG("Packing with pin utilization targets: %s\n", cluster_legalizers[0]->get_target_external_pin_util().to_string().c_str());
+    VTR_LOG("Packing with high fanout thresholds: %s\n", high_fanout_thresholds.to_string().c_str());
+
 
     g_vpr_ctx.mutable_atom().mutable_lookup().set_atom_pb_bimap_lock(true);
+    #pragma omp parallel for num_threads(thread_count)
+    for (size_t partition_num = 0; partition_num < num_partitions; partition_num++) {
+        int thread_num = omp_get_thread_num();
+        cluster_legalizers[thread_num]->set_partition(partition_num);
+        clusterers[thread_num]->set_partition(partition_num);
 
-    // The current state of the packer during iterative packing.
-    e_packer_state current_packer_state = e_packer_state::DEFAULT;
+        ClusterLegalizer& cluster_legalizer = *cluster_legalizers[thread_num];
+        GreedyClusterer& clusterer = *clusterers[thread_num];
 
-    while (current_packer_state != e_packer_state::SUCCESS && current_packer_state != e_packer_state::FAILURE) {
-        VTR_LOG("Packing with pin utilization targets: %s\n", cluster_legalizer.get_target_external_pin_util().to_string().c_str());
-        VTR_LOG("Packing with high fanout thresholds: %s\n", high_fanout_thresholds.to_string().c_str());
-        //Cluster the netlist
-        //  num_used_type_instances: A map used to save the number of used
-        //                           instances from each logical block type.
-        std::map<t_logical_block_type_ptr, size_t> num_used_type_instances;
-        num_used_type_instances = clusterer.do_clustering(cluster_legalizer,
-                                                          prepacker,
-                                                          allow_unrelated_clustering,
-                                                          balance_block_type_util,
-                                                          attraction_groups,
-                                                          mutable_device_ctx);
+        double stime = omp_get_wtime();
+        bool allow_unrelated_clustering = false;
+        if (packer_opts.allow_unrelated_clustering == e_unrelated_clustering::ON) {
+            allow_unrelated_clustering = true;
+        } else if (packer_opts.allow_unrelated_clustering == e_unrelated_clustering::OFF) {
+            allow_unrelated_clustering = false;
+        }
+    
+        bool balance_block_type_util = false;
+        if (packer_opts.balance_block_type_utilization == e_balance_block_type_util::ON) {
+            balance_block_type_util = true;
+        } else if (packer_opts.balance_block_type_utilization == e_balance_block_type_util::OFF) {
+            balance_block_type_util = false;
+        }
+        VTR_LOG("Thread #%d\n", omp_get_thread_num());
+        int pack_iteration = 1;
+
+        // The current state of the packer during iterative packing.
+        e_packer_state current_packer_state = e_packer_state::DEFAULT;
+        while (current_packer_state != e_packer_state::SUCCESS && current_packer_state != e_packer_state::FAILURE) {
+            //Cluster the netlist
+            //  num_used_type_instances: A map used to save the number of used
+            //                           instances from each logical block type.
+            std::map<t_logical_block_type_ptr, size_t> num_used_type_instances;
+            num_used_type_instances = clusterer.do_clustering(cluster_legalizer,
+                                                            prepacker,
+                                                            allow_unrelated_clustering,
+                                                            balance_block_type_util,
+                                                            attraction_groups,
+                                                            mutable_device_ctx);
 
         // Try to size/find a device
         std::map<t_logical_block_type_ptr, float> block_type_utils;
@@ -307,13 +346,13 @@ bool try_pack(const t_packer_opts& packer_opts,
                                                    packer_opts.target_device_utilization,
                                                    packer_opts.device_layout);
 
-        /* We use this bool to determine the cause for the clustering not being dense enough. If the clustering
-         * is not dense enough and there are floorplan constraints, it is presumed that the constraints are the cause
-         * of the floorplan not fitting, so attraction groups are turned on for later iterations.
-         */
-        bool floorplan_regions_overfull = floorplan_constraints_regions_overfull(overfull_partition_regions,
-                                                                                 cluster_legalizer,
-                                                                                 device_ctx.logical_block_types);
+            /* We use this bool to determine the cause for the clustering not being dense enough. If the clustering
+            * is not dense enough and there are floorplan constraints, it is presumed that the constraints are the cause
+            * of the floorplan not fitting, so attraction groups are turned on for later iterations.
+            */
+            bool floorplan_regions_overfull = floorplan_constraints_regions_overfull(overfull_partition_regions,
+                                                                                    cluster_legalizer,
+                                                                                    device_ctx.logical_block_types);
 
         // Next packer state logic
         e_packer_state next_packer_state = get_next_packer_state(current_packer_state,
@@ -418,24 +457,24 @@ bool try_pack(const t_packer_opts& packer_opts,
                                 "The floorplan regions may need to be expanded to run successfully. \n");
             }
 
-            //No suitable device found
-            std::string resource_reqs;
-            std::string resource_avail;
-            auto& grid = g_vpr_ctx.device().grid;
-            for (auto iter = num_used_type_instances.begin(); iter != num_used_type_instances.end(); ++iter) {
-                if (iter != num_used_type_instances.begin()) {
-                    resource_reqs += ", ";
-                    resource_avail += ", ";
+                //No suitable device found
+                std::string resource_reqs;
+                std::string resource_avail;
+                auto& grid = g_vpr_ctx.device().grid;
+                for (auto iter = num_used_type_instances.begin(); iter != num_used_type_instances.end(); ++iter) {
+                    if (iter != num_used_type_instances.begin()) {
+                        resource_reqs += ", ";
+                        resource_avail += ", ";
+                    }
+
+                    resource_reqs += iter->first->name + ": " + std::to_string(iter->second);
+
+                    int num_instances = 0;
+                    for (auto type : iter->first->equivalent_tiles)
+                        num_instances += grid.num_instances(type, -1);
+
+                    resource_avail += iter->first->name + ": " + std::to_string(num_instances);
                 }
-
-                resource_reqs += iter->first->name + ": " + std::to_string(iter->second);
-
-                int num_instances = 0;
-                for (auto type : iter->first->equivalent_tiles)
-                    num_instances += grid.num_instances(type, -1);
-
-                resource_avail += iter->first->name + ": " + std::to_string(num_instances);
-            }
 
             VPR_FATAL_ERROR(VPR_ERROR_OTHER, "Failed to find device which satisfies resource requirements required: %s (available %s)", resource_reqs.c_str(), resource_avail.c_str());
         }
@@ -472,10 +511,28 @@ bool try_pack(const t_packer_opts& packer_opts,
      */
     /******************** End **************************/
     g_vpr_ctx.mutable_atom().mutable_lookup().set_atom_pb_bimap_lock(false);
-    g_vpr_ctx.mutable_atom().mutable_lookup().set_atom_to_pb_bimap(cluster_legalizer.atom_pb_lookup());
-    //check clustering and output it
-    check_and_output_clustering(cluster_legalizer, packer_opts, is_clock, &arch);
 
+    verify_clustering(cluster_legalizers);
+    AtomPBBimap final_atom_pb;
+    for (auto atom_blk : g_vpr_ctx.atom().netlist().blocks()) {
+        for (auto& cluster_legalizer : cluster_legalizers) {
+            auto atom_pb = cluster_legalizer->atom_pb_lookup().atom_pb(atom_blk);
+            if (atom_pb != nullptr) {
+                final_atom_pb.set_atom_pb(atom_blk, atom_pb);
+                break;
+            }
+        }
+    }
+    
+    g_vpr_ctx.mutable_atom().mutable_lookup().set_atom_to_pb_bimap(final_atom_pb);
+
+    for (auto atom_blk : g_vpr_ctx.atom().netlist().blocks()) {
+        VTR_ASSERT(g_vpr_ctx.mutable_atom().mutable_lookup().atom_pb_bimap().atom_pb(atom_blk) != nullptr);
+    }
+
+    //check clustering and output it
+    // cluster_legalizers[0]->mutable_atom_pb_lookup() = final_atom_pb_bimap;
+    check_and_output_clustering(cluster_legalizers, packer_opts, is_clock, &arch);
     VTR_LOG("\n");
     VTR_LOG("Netlist conversion complete.\n");
     VTR_LOG("\n");

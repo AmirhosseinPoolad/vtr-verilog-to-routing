@@ -54,6 +54,7 @@
 #include "prepack.h"
 #include "vpr_context.h"
 #include "vtr_math.h"
+#include "netlist_partitioner.h"
 
 namespace {
 
@@ -80,7 +81,9 @@ GreedyClusterer::GreedyClusterer(const t_packer_opts& packer_opts,
                                  const std::unordered_set<AtomNetId>& is_clock,
                                  const std::unordered_set<AtomNetId>& is_global,
                                  const PreClusterTimingManager& pre_cluster_timing_manager,
-                                 const APPackContext& appack_ctx)
+                                 const APPackContext& appack_ctx,
+                                 const NetlistPartition& netlist_partition,
+                                 int partition_num)
     : packer_opts_(packer_opts)
     , analysis_opts_(analysis_opts)
     , atom_netlist_(atom_netlist)
@@ -92,7 +95,9 @@ GreedyClusterer::GreedyClusterer(const t_packer_opts& packer_opts,
     , appack_ctx_(appack_ctx)
     , primitive_candidate_block_types_(identify_primitive_candidate_block_types())
     , log_verbosity_(packer_opts.pack_verbosity)
-    , net_output_feeds_driving_block_input_(identify_net_output_feeds_driving_block_input(atom_netlist)) {
+    , net_output_feeds_driving_block_input_(identify_net_output_feeds_driving_block_input(atom_netlist))
+    , netlist_partition_(netlist_partition) {
+    partition_num_ = partition_num;
 }
 
 std::map<t_logical_block_type_ptr, size_t>
@@ -213,6 +218,7 @@ GreedyClusterer::do_clustering(ClusterLegalizer& cluster_legalizer,
 
         // Pick new seed.
         seed_mol_id = seed_selector.get_next_seed(cluster_legalizer);
+        VTR_ASSERT((seed_mol_id == PackMoleculeId::INVALID()) || cluster_legalizer.is_cluster_in_partition(seed_mol_id));
     }
 
     // If this architecture has LE physical block, report its usage.
@@ -258,7 +264,6 @@ LegalizationClusterId GreedyClusterer::try_grow_cluster(PackMoleculeId seed_mol_
         legalization_cluster_id,
         cluster_legalizer,
         attraction_groups);
-
     /*
      * When attraction groups are created, the purpose is to pack more densely by adding more molecules
      * from the cluster's attraction group to the cluster. In a normal flow, (when attraction groups are
@@ -520,6 +525,10 @@ bool GreedyClusterer::try_add_candidate_mol_to_cluster(PackMoleculeId candidate_
     }
 
     return pack_status == e_block_pack_status::BLK_PASSED;
+}
+
+void GreedyClusterer::set_partition(int partition_num) {
+    partition_num_ = partition_num;
 }
 
 void GreedyClusterer::report_le_physical_block_usage(const ClusterLegalizer& cluster_legalizer) {

@@ -2175,6 +2175,10 @@ argparse::ArgumentParser create_arg_parser(const std::string& prog_name, t_optio
         .default_value("2")
         .show_in(argparse::ShowIn::HELP_ONLY);
 
+    pack_grp.add_argument(args.pack_num_threads, "--pack_num_threads").default_value("1");
+    pack_grp.add_argument(args.pack_num_partitions, "--pack_num_partitions").default_value("1");
+    pack_grp.add_argument(args.weighted_partitioning, "--weighted_partitioning").default_value("false");
+
     auto& place_grp = parser.add_argument_group("placement options");
 
     place_grp.add_argument(args.Seed, "--seed")

@@ -250,10 +250,14 @@ PackMoleculeId GreedySeedSelector::get_next_seed(const ClusterLegalizer& cluster
         PackMoleculeId seed_molecule_id = seed_mols_[seed_index_++];
 
         // If this molecule has been clustered, it cannot be proposed as a seed.
-        // Skip to the next seed.
         if (cluster_legalizer.is_mol_clustered(seed_molecule_id)) {
             continue;
         }
+
+        if (!cluster_legalizer.is_cluster_in_partition(seed_molecule_id)) {
+            continue;
+        }
+
         return seed_molecule_id;
     }
 

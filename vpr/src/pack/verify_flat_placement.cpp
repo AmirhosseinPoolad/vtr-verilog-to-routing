@@ -10,7 +10,8 @@ unsigned verify_flat_placement_for_packing(const FlatPlacementInfo& flat_placeme
                                            const AtomNetlist& atom_netlist,
                                            const Prepacker& prepacker) {
     unsigned num_errors = 0;
-
+    
+    t_flat_pl_loc min_coords({0.0f, 0.0f, 0.0f});
     // Quick check to ensure that the flat placement info has the correct size
     // for each piece of information.
     if (flat_placement_info.blk_x_pos.size() != atom_netlist.blocks().size()

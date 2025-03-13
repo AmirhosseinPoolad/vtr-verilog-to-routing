@@ -786,6 +786,9 @@ struct t_packer_opts {
     std::string device_layout;
     e_timing_update_type timing_update_type;
     bool load_flat_placement = false;
+    int num_threads;
+    int num_partitions;
+    bool weighted_partitioning;
 };
 
 /**

@@ -25,7 +25,7 @@ struct AtomContext;
 /*
  * @brief Check clustering legality and output it.
  */
-void check_and_output_clustering(ClusterLegalizer& cluster_legalizer,
+void check_and_output_clustering(const std::vector<std::unique_ptr<ClusterLegalizer>>& cluster_legalizers,
                                  const t_packer_opts& packer_opts,
                                  const std::unordered_set<AtomNetId>& is_clock,
                                  const t_arch* arch);

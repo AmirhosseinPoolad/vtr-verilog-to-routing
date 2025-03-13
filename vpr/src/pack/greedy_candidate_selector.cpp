@@ -67,7 +67,8 @@ static void add_molecule_to_pb_stats_candidates(
     AttractionInfo& attraction_groups,
     const Prepacker& prepacker,
     const AtomNetlist& atom_netlist,
-    const APPackContext& appack_ctx);
+    const APPackContext& appack_ctx,
+    const ClusterLegalizer& cluster_legalizer);
 
 /**
  * @brief Get the flat placement position of the given molecule.
@@ -739,6 +740,7 @@ PackMoleculeId GreedyCandidateSelector::get_next_candidate_for_cluster(
         VTR_ASSERT(best_molecule != PackMoleculeId::INVALID());
         cluster_gain_stats.num_candidates_proposed++;
         VTR_ASSERT(!cluster_legalizer.is_mol_clustered(best_molecule));
+        VTR_ASSERT(cluster_legalizer.is_cluster_in_partition(best_molecule));
     }
 
     // If we have no feasible blocks, or we have reached the limit of number of pops,
@@ -756,6 +758,7 @@ PackMoleculeId GreedyCandidateSelector::get_next_candidate_for_cluster(
         const t_appack_options& appack_options = appack_ctx_.appack_options;
         if (appack_options.use_appack) {
             if (num_unrelated_clustering_attempts_ < appack_options.max_unrelated_clustering_attempts) {
+                // TODO: need to fix this to take partitions into account
                 best_molecule = get_unrelated_candidate_for_cluster_appack(cluster_gain_stats,
                                                                            cluster_id,
                                                                            cluster_legalizer);
@@ -774,7 +777,7 @@ PackMoleculeId GreedyCandidateSelector::get_next_candidate_for_cluster(
         VTR_LOGV(!best_molecule && log_verbosity_ > 2,
                  "\tNo related molecule found and unrelated clustering disabled\n");
     }
-
+    VTR_ASSERT((best_molecule == PackMoleculeId::INVALID()) || cluster_legalizer.is_cluster_in_partition(best_molecule));
     return best_molecule;
 }
 
@@ -799,7 +802,8 @@ void GreedyCandidateSelector::add_cluster_molecule_candidates_by_connectivity_an
                                                 attraction_groups,
                                                 prepacker_,
                                                 atom_netlist_,
-                                                appack_ctx_);
+                                                appack_ctx_,
+                                                cluster_legalizer);
         }
     }
 }
@@ -828,7 +832,8 @@ void GreedyCandidateSelector::add_cluster_molecule_candidates_by_transitive_conn
                                                 attraction_groups,
                                                 prepacker_,
                                                 atom_netlist_,
-                                                appack_ctx_);
+                                                appack_ctx_,
+                                                cluster_legalizer);
         }
     }
 }
@@ -861,7 +866,8 @@ void GreedyCandidateSelector::add_cluster_molecule_candidates_by_highfanout_conn
                                                 attraction_groups,
                                                 prepacker_,
                                                 atom_netlist_,
-                                                appack_ctx_);
+                                                appack_ctx_,
+                                                cluster_legalizer);
             count++;
         }
     }
@@ -921,7 +927,8 @@ void GreedyCandidateSelector::add_cluster_molecule_candidates_by_attraction_grou
                                                     attraction_groups,
                                                     prepacker_,
                                                     atom_netlist_,
-                                                    appack_ctx_);
+                                                    appack_ctx_,
+                                                    cluster_legalizer);
             }
         }
         return;
@@ -942,7 +949,8 @@ void GreedyCandidateSelector::add_cluster_molecule_candidates_by_attraction_grou
                                                 attraction_groups,
                                                 prepacker_,
                                                 atom_netlist_,
-                                                appack_ctx_);
+                                                appack_ctx_,
+                                                cluster_legalizer);
         }
     }
 }
@@ -956,7 +964,8 @@ static void add_molecule_to_pb_stats_candidates(PackMoleculeId molecule_id,
                                                 AttractionInfo& attraction_groups,
                                                 const Prepacker& prepacker,
                                                 const AtomNetlist& atom_netlist,
-                                                const APPackContext& appack_ctx) {
+                                                const APPackContext& appack_ctx,
+                                                const ClusterLegalizer& cluster_legalizer) {
 
     // If using APPack, before adding this molecule to the candidates, check to
     // see if the molecule is too far away from the position of the cluster.
@@ -977,6 +986,10 @@ static void add_molecule_to_pb_stats_candidates(PackMoleculeId molecule_id,
             if (dist > max_dist)
                 return;
         }
+    }
+
+    if (!cluster_legalizer.is_cluster_in_partition(molecule_id)) {
+        return;
     }
 
     int num_molecule_failures = 0;
@@ -1191,7 +1204,7 @@ PackMoleculeId GreedyCandidateSelector::get_unrelated_candidate_for_cluster(
         PackMoleculeId molecule = PackMoleculeId::INVALID();
         for (PackMoleculeId mol_id : unrelated_clustering_data_[ext_inps]) {
             /* TODO: Get better candidate atom block in future, eg. return most timing critical or some other smarter metric */
-            if (!cluster_legalizer.is_mol_clustered(mol_id)) {
+            if (!cluster_legalizer.is_mol_clustered(mol_id) && cluster_legalizer.is_cluster_in_partition(mol_id)) {
                 /* TODO: I should be using a better filtering check especially when I'm
                  * dealing with multiple clock/multiple global reset signals where the clock/reset
                  * packed in matters, need to do later when I have the circuits to check my work */
@@ -1283,6 +1296,9 @@ PackMoleculeId GreedyCandidateSelector::get_unrelated_candidate_for_cluster_appa
             for (PackMoleculeId mol_id : uc_data[ext_inps]) {
                 // If this molecule has been clustered, skip it.
                 if (cluster_legalizer.is_mol_clustered(mol_id))
+                    continue;
+
+                if (!cluster_legalizer.is_cluster_in_partition(mol_id))
                     continue;
                 // If this molecule has tried to be packed before and failed
                 // do not try it. This also means that this molecule may be

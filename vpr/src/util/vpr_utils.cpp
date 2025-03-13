@@ -1319,11 +1319,9 @@ void free_pb(t_pb* pb, AtomPBBimap& atom_pb_bimap) {
 
     } else {
         /* Primitive */
-        auto& atom_ctx = g_vpr_ctx.mutable_atom();
         auto blk_id = atom_pb_bimap.pb_atom(pb);
         if (blk_id) {
             //Update atom netlist mapping
-            atom_ctx.mutable_lookup().set_atom_clb(blk_id, ClusterBlockId::INVALID());
             atom_pb_bimap.set_atom_pb(blk_id, nullptr);
         }
         atom_pb_bimap.set_atom_pb(AtomBlockId::INVALID(), pb);

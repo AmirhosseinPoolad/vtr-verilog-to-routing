@@ -1,7 +1,10 @@
 #pragma once
 
 #include <unordered_set>
+#include <unordered_map>
 #include <vector>
+#include "prepack.h"
+#include "flat_placement_types.h"
 
 class AtomNetId;
 class FlatPlacementInfo;

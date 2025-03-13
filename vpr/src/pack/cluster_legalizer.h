@@ -12,6 +12,7 @@
  */
 
 #include <vector>
+#include <span>
 #include "atom_netlist_fwd.h"
 #include "noc_data_types.h"
 #include "partition_region.h"
@@ -23,6 +24,7 @@
 #include "vtr_vector_map.h"
 #include "atom_pb_bimap.h"
 #include "vpr_utils.h"
+#include "netlist_partitioner.h"
 
 // Forward declarations
 class Prepacker;
@@ -281,7 +283,9 @@ class ClusterLegalizer {
                      ClusterLegalizationStrategy cluster_legalization_strategy,
                      bool enable_pin_feasibility_filter,
                      const LogicalModels& models,
-                     int log_verbosity);
+                     int log_verbosity,
+                     const NetlistPartition& partition_map,
+                     int partition_num);
 
     // This class allocates and deallocates memory within. This class should not
     // be copied or moved to prevent it from double freeing / losing pointers.
@@ -508,8 +512,7 @@ class ClusterLegalizer {
         cluster_legalization_strategy_ = strategy;
     }
 
-    /*
-     * @brief Set how verbose the log messages should be for the cluster legalizer.
+    /* the log messages should be for the cluster legalizer.
      *
      * This allows the user to set the verbosity at different points for easier
      * usability.
@@ -519,6 +522,7 @@ class ClusterLegalizer {
      * Set the verbosity to 5 to see all the log messages in the legalizer.
      *
      *  @param verbosity    The value to set the verbosity to.
+     * @brief Set how verbose
      */
     inline void set_log_verbosity(int verbosity) {
         log_verbosity_ = verbosity;
@@ -526,6 +530,10 @@ class ClusterLegalizer {
 
     inline const AtomPBBimap& atom_pb_lookup() const { return atom_pb_lookup_; }
     inline AtomPBBimap& mutable_atom_pb_lookup() { return atom_pb_lookup_; }
+
+    inline bool is_cluster_in_partition(PackMoleculeId mol_id) const { return netlist_partition_.get_partition(mol_id) == partition_num_; }
+
+    void merge_with_others(std::vector<std::unique_ptr<ClusterLegalizer>>& cluster_legalizers);
 
     inline const IntraLbPbPinLookup& intra_lb_pb_pin_lookup() const { return intra_lb_pb_pin_lookup_; }
 
@@ -535,19 +543,19 @@ class ClusterLegalizer {
   private:
     /// @brief A vector of the legalization cluster IDs. If any of them are
     ///        invalid, then that means that the cluster has been destroyed.
-    vtr::vector_map<LegalizationClusterId, LegalizationClusterId> legalization_cluster_ids_;
+    vtr::vector_map<LegalizationClusterId, LegalizationClusterId> legalization_cluster_ids_; // MERGED
 
     /// @brief Lookup table for which cluster each molecule is in.
-    vtr::vector_map<PackMoleculeId, LegalizationClusterId> molecule_cluster_;
+    vtr::vector_map<PackMoleculeId, LegalizationClusterId> molecule_cluster_; // MERGED
 
     /// @brief Clustering chain information for each of the chains in the prepacker.
-    vtr::vector_map<MoleculeChainId, t_clustering_chain_info> clustering_chain_info_;
+    vtr::vector_map<MoleculeChainId, t_clustering_chain_info> clustering_chain_info_; // MERGED
 
     /// @brief List of all legalization clusters.
-    vtr::vector_map<LegalizationClusterId, LegalizationCluster> legalization_clusters_;
+    vtr::vector_map<LegalizationClusterId, LegalizationCluster> legalization_clusters_; // MERGED
 
     /// @brief A lookup-table for which cluster the given atom is packed into.
-    vtr::vector_map<AtomBlockId, LegalizationClusterId> atom_cluster_;
+    vtr::vector_map<AtomBlockId, LegalizationClusterId> atom_cluster_; //MERGED
 
     /// @brief Stores the NoC group ID of each atom block. Atom blocks that
     ///        belong to different NoC groups can't be clustered with each other
@@ -601,6 +609,11 @@ class ClusterLegalizer {
     /// of the AtomPBBimap in the global context's AtomLookup
     AtomPBBimap atom_pb_lookup_;
 
+    const NetlistPartition& netlist_partition_;
+    int partition_num_;
+
     /// @brief A lookup table for the pin mapping of the intra-lb pb pins.
     IntraLbPbPinLookup intra_lb_pb_pin_lookup_;
 };
+
+void verify_clustering(std::vector<std::unique_ptr<ClusterLegalizer>>& cluster_legalizers);

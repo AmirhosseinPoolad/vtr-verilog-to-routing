@@ -288,7 +288,8 @@ void NaiveFullLegalizer::create_clusters(const PartialPlacement& p_placement) {
     // FIXME: The legalization strategy is currently set to full. Should handle
     //        this better to make it faster.
     t_pack_high_fanout_thresholds high_fanout_thresholds(vpr_setup_.PackerOpts.high_fanout_threshold);
-    ClusterLegalizer cluster_legalizer(atom_netlist_,
+    std::vector<std::unique_ptr<ClusterLegalizer>> leg_vec;
+    leg_vec.push_back(std::make_unique<ClusterLegalizer>(atom_netlist_,
                                        prepacker_,
                                        vpr_setup_.PackerRRGraph,
                                        vpr_setup_.PackerOpts.target_external_pin_util,
@@ -296,7 +297,10 @@ void NaiveFullLegalizer::create_clusters(const PartialPlacement& p_placement) {
                                        ClusterLegalizationStrategy::FULL,
                                        vpr_setup_.PackerOpts.enable_pin_feasibility_filter,
                                        arch_.models,
-                                       vpr_setup_.PackerOpts.pack_verbosity);
+                                       vpr_setup_.PackerOpts.pack_verbosity,
+                                       NetlistPartition(0),
+                                       0));
+    ClusterLegalizer &cluster_legalizer = *leg_vec[0];
     // Create clusters for each tile.
     //  Start by giving each root tile a unique ID.
     size_t grid_width = device_grid_.width();
@@ -370,7 +374,7 @@ void NaiveFullLegalizer::create_clusters(const PartialPlacement& p_placement) {
 
     // Check and output the clustering.
     std::unordered_set<AtomNetId> is_clock = alloc_and_load_is_clock();
-    check_and_output_clustering(cluster_legalizer, vpr_setup_.PackerOpts, is_clock, &arch_);
+    check_and_output_clustering(leg_vec, vpr_setup_.PackerOpts, is_clock, &arch_);
     // Reset the cluster legalizer. This is required to load the packing.
     cluster_legalizer.reset();
     // Regenerate the clustered netlist from the file generated previously.

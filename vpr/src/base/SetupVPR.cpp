@@ -595,6 +595,9 @@ void SetupPackerOpts(const t_options& Options,
     PackerOpts->high_fanout_threshold = Options.pack_high_fanout_threshold;
     PackerOpts->transitive_fanout_threshold = Options.pack_transitive_fanout_threshold;
     PackerOpts->feasible_block_array_size = Options.pack_feasible_block_array_size;
+    PackerOpts->num_threads = Options.pack_num_threads;
+    PackerOpts->weighted_partitioning = Options.weighted_partitioning;
+    PackerOpts->num_partitions = Options.pack_num_partitions;
 
     PackerOpts->device_layout = Options.device_layout;
 

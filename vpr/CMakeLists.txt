@@ -76,6 +76,11 @@ add_library(libvpr STATIC
 
 target_include_directories(libvpr PUBLIC ${LIB_INCLUDE_DIRS})
 
+# Add OpenMP support
+find_package(OpenMP)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(libvpr OpenMP::OpenMP_CXX)
+endif()
 
 # Find if Eigen is installed. Eigen is used within the Analytical Solver of the
 # Analytical Placement flow. If Eigen is not installed, certain solvers cannot

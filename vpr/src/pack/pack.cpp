@@ -1,6 +1,8 @@
 
 #include "pack.h"
 
+#include <iostream>
+#include <fstream>
 #include <unordered_set>
 #include "FlatPlacementInfo.h"
 #include "SetupGrid.h"
@@ -61,6 +63,9 @@ bool try_pack(t_packer_opts* packer_opts,
               const FlatPlacementInfo& flat_placement_info) {
     const AtomContext& atom_ctx = g_vpr_ctx.atom();
     const DeviceContext& device_ctx = g_vpr_ctx.device();
+    std::fstream outFile;
+    std::vector<AtomBlockId> block_ids;
+    outFile.open("graph_traverse.txt");    
     // The clusterer modifies the device context by increasing the size of the
     // device if needed.
     DeviceContext& mutable_device_ctx = g_vpr_ctx.mutable_device();
@@ -87,6 +92,38 @@ bool try_pack(t_packer_opts* packer_opts,
     VTR_LOG("\ttotal blocks: %zu, total nets: %zu, total inputs: %zu, total outputs: %zu\n",
             atom_ctx.netlist().blocks().size(), atom_ctx.netlist().nets().size(), num_p_inputs, num_p_outputs);
 
+    // Graph traversing
+    bool put_space = false;
+    if (outFile.is_open()){
+        for (auto net_id : g_vpr_ctx.atom().netlist().nets()){
+            // outFile << net_id;
+            block_ids.clear();
+            put_space = false;
+            for (auto pin_id : g_vpr_ctx.atom().netlist().net_pins(net_id)){
+                auto it = std::find(block_ids.begin(), block_ids.end(), g_vpr_ctx.atom().netlist().pin_block(pin_id));
+                if (it == block_ids.end()){
+                    block_ids.push_back(g_vpr_ctx.atom().netlist().pin_block(pin_id));
+                    if (put_space){
+                        outFile << " ";  
+                    }
+                    outFile << ((int)g_vpr_ctx.atom().netlist().pin_block(pin_id) + 1);
+                    put_space = true;
+
+                }
+            }
+            outFile << "\n";
+        }
+        outFile.close();
+    }
+    else 
+    {
+        std::cerr << "Error opening file: " << std::strerror(errno) << std::endl;
+        std::cout << "*********************************************\n";
+        std::cout << "Failed to open the file\n";
+        std::cout << "*********************************************\n";
+    }
+
+    // End of graph traversing
     // Run the prepacker, packing the atoms into molecules.
     // The Prepacker object performs prepacking and stores the pack molecules.
     // As long as the molecules are used, this object must persist.

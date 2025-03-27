@@ -65,10 +65,9 @@ bool try_pack(t_packer_opts* packer_opts,
               const FlatPlacementInfo& flat_placement_info) {
     const AtomContext& atom_ctx = g_vpr_ctx.atom();
     const DeviceContext& device_ctx = g_vpr_ctx.device();
-    std::fstream graph_traverse_file;
+    std::ofstream graph_traverse_file("graph_traverse.txt", std::ios::out);
     std::vector<AtomBlockId> block_ids;
     std::vector<PackMoleculeId> molecule_ids;
-    graph_traverse_file.open("graph_traverse.txt");    
     // The clusterer modifies the device context by increasing the size of the
     // device if needed.
     DeviceContext& mutable_device_ctx = g_vpr_ctx.mutable_device();
@@ -150,14 +149,19 @@ bool try_pack(t_packer_opts* packer_opts,
                 auto it = std::find(molecule_ids.begin(), molecule_ids.end(), target_molecule_id);
                 if (it == molecule_ids.end()){
                     molecule_ids.push_back(target_molecule_id);
-                    if (put_space){
-                        graph_traverse_file << " ";  
-                    }
-                    graph_traverse_file << ((int)target_molecule_id + 1);
-                    put_space = true;
-
                 }
             }
+
+            if (molecule_ids.size() > 1)
+            {
+                for (auto target_molecule_id : molecule_ids){
+                    if (put_space){
+                        graph_traverse_file << " ";  
+                    }                    
+                    graph_traverse_file << ((int)target_molecule_id + 1);
+                    put_space = true;
+                }
+            }            
             graph_traverse_file << "\n";
         }
         graph_traverse_file.close();
@@ -183,14 +187,15 @@ bool try_pack(t_packer_opts* packer_opts,
 
     }
     Prepacker prepackers[PACKING_NUM_THREADS];
-    for (int i = 0; i < PACKING_NUM_THREADS; i++){
         for (const auto& molecule_partition : molecule_partitions){
-            if (molecule_partition.second == i){
-                prepackers[i].pack_molecule_ids_.push_back(molecule_partition.first);
-                prepackers[i].pack_molecules_.push_back(prepacker.get_molecule(molecule_partition.first));
-                
+            if ((size_t)molecule_partition.first < prepacker.pack_molecules_.size())
+            {
+                VTR_ASSERT(molecule_partition.first.is_valid());
+                prepackers[molecule_partition.second].pack_molecule_ids_.push_back(molecule_partition.first);
+                prepackers[molecule_partition.second].pack_molecules_.push_back(prepacker.get_molecule(molecule_partition.first));
             }
         }
+    for (int i = 0; i < PACKING_NUM_THREADS; i++){
         prepackers[i].atom_molecule_ = prepacker.atom_molecule_;
         prepackers[i].expected_lowest_cost_pb_gnode = prepacker.expected_lowest_cost_pb_gnode;
         prepackers[i].list_of_pack_patterns = prepacker.list_of_pack_patterns;

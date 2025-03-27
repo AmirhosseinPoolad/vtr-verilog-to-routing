@@ -1788,6 +1788,9 @@ t_molecule_stats Prepacker::calc_max_molecule_stats(const AtomNetlist& atom_nlis
     return max_molecules_stats;
 }
 
+Prepacker::Prepacker() {
+}
+
 Prepacker::~Prepacker() {
     // When the prepacker is reset (or destroyed), clean up the internal data
     // members.

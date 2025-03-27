@@ -24,6 +24,8 @@
 
 #include "omp.h"
 
+#define PACKING_NUM_THREADS 4
+
 static bool try_size_device_grid(const t_arch& arch,
                                  const std::map<t_logical_block_type_ptr, size_t>& num_type_instances,
                                  float target_device_utilization,
@@ -63,9 +65,10 @@ bool try_pack(t_packer_opts* packer_opts,
               const FlatPlacementInfo& flat_placement_info) {
     const AtomContext& atom_ctx = g_vpr_ctx.atom();
     const DeviceContext& device_ctx = g_vpr_ctx.device();
-    std::fstream outFile;
+    std::fstream graph_traverse_file;
     std::vector<AtomBlockId> block_ids;
-    outFile.open("graph_traverse.txt");    
+    std::vector<PackMoleculeId> molecule_ids;
+    graph_traverse_file.open("graph_traverse.txt");    
     // The clusterer modifies the device context by increasing the size of the
     // device if needed.
     DeviceContext& mutable_device_ctx = g_vpr_ctx.mutable_device();
@@ -93,35 +96,35 @@ bool try_pack(t_packer_opts* packer_opts,
             atom_ctx.netlist().blocks().size(), atom_ctx.netlist().nets().size(), num_p_inputs, num_p_outputs);
 
     // Graph traversing
-    bool put_space = false;
-    if (outFile.is_open()){
-        for (auto net_id : g_vpr_ctx.atom().netlist().nets()){
-            // outFile << net_id;
-            block_ids.clear();
-            put_space = false;
-            for (auto pin_id : g_vpr_ctx.atom().netlist().net_pins(net_id)){
-                auto it = std::find(block_ids.begin(), block_ids.end(), g_vpr_ctx.atom().netlist().pin_block(pin_id));
-                if (it == block_ids.end()){
-                    block_ids.push_back(g_vpr_ctx.atom().netlist().pin_block(pin_id));
-                    if (put_space){
-                        outFile << " ";  
-                    }
-                    outFile << ((int)g_vpr_ctx.atom().netlist().pin_block(pin_id) + 1);
-                    put_space = true;
+    // bool put_space = false;
+    // if (graph_traverse_file.is_open()){
+    //     for (auto net_id : g_vpr_ctx.atom().netlist().nets()){
+    //         // graph_traverse_file << net_id;
+    //         block_ids.clear();
+    //         put_space = false;
+    //         for (auto pin_id : g_vpr_ctx.atom().netlist().net_pins(net_id)){
+    //             auto it = std::find(block_ids.begin(), block_ids.end(), g_vpr_ctx.atom().netlist().pin_block(pin_id));
+    //             if (it == block_ids.end()){
+    //                 block_ids.push_back(g_vpr_ctx.atom().netlist().pin_block(pin_id));
+    //                 if (put_space){
+    //                     graph_traverse_file << " ";  
+    //                 }
+    //                 graph_traverse_file << ((int)g_vpr_ctx.atom().netlist().pin_block(pin_id) + 1);
+    //                 put_space = true;
 
-                }
-            }
-            outFile << "\n";
-        }
-        outFile.close();
-    }
-    else 
-    {
-        std::cerr << "Error opening file: " << std::strerror(errno) << std::endl;
-        std::cout << "*********************************************\n";
-        std::cout << "Failed to open the file\n";
-        std::cout << "*********************************************\n";
-    }
+    //             }
+    //         }
+    //         graph_traverse_file << "\n";
+    //     }
+    //     graph_traverse_file.close();
+    // }
+    // else 
+    // {
+    //     std::cerr << "Error opening file: " << std::strerror(errno) << std::endl;
+    //     std::cout << "*********************************************\n";
+    //     std::cout << "Failed to open the file\n";
+    //     std::cout << "*********************************************\n";
+    // }
 
     // End of graph traversing
     // Run the prepacker, packing the atoms into molecules.
@@ -136,6 +139,63 @@ bool try_pack(t_packer_opts* packer_opts,
     AttractionInfo attraction_groups(false);
     VTR_LOG("%d attraction groups were created during prepacking.\n", attraction_groups.num_attraction_groups());
     VTR_LOG("Finish prepacking.\n");
+    // Create graph of molecules
+    bool put_space = false;
+    if (graph_traverse_file.is_open()){
+        for (auto net_id : g_vpr_ctx.atom().netlist().nets()){
+            molecule_ids.clear();
+            put_space = false;
+            for (auto pin_id : g_vpr_ctx.atom().netlist().net_pins(net_id)){
+                auto target_molecule_id = prepacker.get_atom_molecule(g_vpr_ctx.atom().netlist().pin_block(pin_id));
+                auto it = std::find(molecule_ids.begin(), molecule_ids.end(), target_molecule_id);
+                if (it == molecule_ids.end()){
+                    molecule_ids.push_back(target_molecule_id);
+                    if (put_space){
+                        graph_traverse_file << " ";  
+                    }
+                    graph_traverse_file << ((int)target_molecule_id + 1);
+                    put_space = true;
+
+                }
+            }
+            graph_traverse_file << "\n";
+        }
+        graph_traverse_file.close();
+    }
+    else 
+    {
+        std::cerr << "Error opening file: " << std::strerror(errno) << std::endl;
+    }   
+    std::ifstream partitioned_graph_file("partitioned_graph.txt");
+    std::string line;
+    std::map<PackMoleculeId, int> molecule_partitions; // Must be read from the associated file
+    if (!partitioned_graph_file.is_open()) {
+        std::cerr << "Could not open the partitioned graph file.\n";
+        return 1;
+    }    
+    int partition_id;
+    size_t count_molecules = 0;
+    while (std::getline(partitioned_graph_file, line))
+    {
+        partition_id = std::stoi(line);
+        molecule_partitions[PackMoleculeId(count_molecules)] = partition_id;
+        count_molecules ++;
+
+    }
+    Prepacker prepackers[PACKING_NUM_THREADS];
+    for (int i = 0; i < PACKING_NUM_THREADS; i++){
+        for (const auto& molecule_partition : molecule_partitions){
+            if (molecule_partition.second == i){
+                prepackers[i].pack_molecule_ids_.push_back(molecule_partition.first);
+                prepackers[i].pack_molecules_.push_back(prepacker.get_molecule(molecule_partition.first));
+                
+            }
+        }
+        prepackers[i].atom_molecule_ = prepacker.atom_molecule_;
+        prepackers[i].expected_lowest_cost_pb_gnode = prepacker.expected_lowest_cost_pb_gnode;
+        prepackers[i].list_of_pack_patterns = prepacker.list_of_pack_patterns;
+        prepackers[i].chain_info_ = prepacker.chain_info_;
+    }
 
     // We keep track of the overfilled partition regions from all pack iterations in
     // this vector. This is so that if the first iteration fails due to overfilled
@@ -196,9 +256,9 @@ bool try_pack(t_packer_opts* packer_opts,
     // Initialize the cluster legalizer.
     std::vector<std::unique_ptr<ClusterLegalizer>> cluster_legalizers;
     std::vector<std::unique_ptr<GreedyClusterer>> clusterers;
-    for(int i = 0; i < 4; i++) {
+    for(int i = 0; i < PACKING_NUM_THREADS; i++) {
         cluster_legalizers.push_back(std::make_unique<ClusterLegalizer>(atom_ctx.netlist(),
-        prepacker,
+        prepackers[i],
         lb_type_rr_graphs,
         packer_opts->target_external_pin_util,
         high_fanout_thresholds,
@@ -237,7 +297,7 @@ bool try_pack(t_packer_opts* packer_opts,
 
     g_vpr_ctx.mutable_atom().mutable_lookup().lock_atom_pb_bimap = true;
     #pragma omp parallel for
-    for(int i = 0; i < 4; i++){
+    for(int i = 0; i < PACKING_NUM_THREADS; i++){
         VTR_LOG("Thread #%d\n", omp_get_thread_num());
         int pack_iteration = 1;
         while (true) {
@@ -246,7 +306,7 @@ bool try_pack(t_packer_opts* packer_opts,
             //                           instances from each logical block type.
             std::map<t_logical_block_type_ptr, size_t> num_used_type_instances;
             num_used_type_instances = clusterers[i]->do_clustering(*cluster_legalizers[i],
-                                                            prepacker,
+                                                            prepackers[i],
                                                             allow_unrelated_clustering,
                                                             balance_block_type_util,
                                                             attraction_groups,
@@ -306,11 +366,11 @@ bool try_pack(t_packer_opts* packer_opts,
                     attraction_groups.create_att_groups_for_all_regions();
                     VTR_LOG("Floorplan regions are overfull: trying to pack again with more attraction groups exploration. \n");
                     VTR_LOG("Pack iteration is %d\n", pack_iteration);
-                } else if (pack_iteration == 4) {
+                } else if (pack_iteration == PACKING_NUM_THREADS) {
                     attraction_groups.create_att_groups_for_all_regions();
                     VTR_LOG("Floorplan regions are overfull: trying to pack again with more attraction groups exploration and higher target pin utilization. \n");
                     VTR_LOG("Pack iteration is %d\n", pack_iteration);
-                    attraction_groups.set_att_group_pulls(4);
+                    attraction_groups.set_att_group_pulls(PACKING_NUM_THREADS);
                     t_ext_pin_util pin_util(1.0, 1.0);
                     // TODO: This line assumes the logic block name is "clb" which
                     //       may not be the case. This may need to be investigated.

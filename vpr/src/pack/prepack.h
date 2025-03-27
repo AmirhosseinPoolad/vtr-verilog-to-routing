@@ -182,6 +182,7 @@ class Prepacker {
     Prepacker(const Prepacker&) = delete;
     Prepacker& operator=(const Prepacker&) = delete;
 
+    Prepacker();
     // Destructor of the class.
     ~Prepacker();
 
@@ -307,7 +308,8 @@ class Prepacker {
                                        std::multimap<AtomBlockId, PackMoleculeId>& atom_molecules_multimap,
                                        const AtomNetlist& atom_nlist);
 
-  private:
+//   private:
+    public:
     /**
      * @brief Collection of all molecule IDs. If an entry in this map is invalid
      *        it means that the molecule should be destroyed.

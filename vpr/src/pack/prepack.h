@@ -184,7 +184,7 @@ class Prepacker {
 
     Prepacker();
     // Destructor of the class.
-    ~Prepacker();
+    // ~Prepacker();
 
     /**
      * @brief Construtor. Performs prepacking.

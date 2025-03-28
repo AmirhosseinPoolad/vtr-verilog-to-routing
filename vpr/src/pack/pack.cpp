@@ -24,7 +24,7 @@
 
 #include "omp.h"
 
-#define PACKING_NUM_THREADS 4
+#define PACKING_NUM_THREADS 1
 
 static bool try_size_device_grid(const t_arch& arch,
                                  const std::map<t_logical_block_type_ptr, size_t>& num_type_instances,
@@ -130,7 +130,7 @@ bool try_pack(t_packer_opts* packer_opts,
     // The Prepacker object performs prepacking and stores the pack molecules.
     // As long as the molecules are used, this object must persist.
     VTR_LOG("Begin prepacking.\n");
-    const Prepacker prepacker(atom_ctx.netlist(), device_ctx.logical_block_types);
+    Prepacker prepacker(atom_ctx.netlist(), device_ctx.logical_block_types);
 
     /* We keep attraction groups off in the first iteration,  and
      * only turn on in later iterations if some floorplan regions turn out to be overfull.
@@ -181,7 +181,8 @@ bool try_pack(t_packer_opts* packer_opts,
     size_t count_molecules = 0;
     while (std::getline(partitioned_graph_file, line))
     {
-        partition_id = std::stoi(line);
+        // partition_id = std::stoi(line);
+        partition_id = 0;
         molecule_partitions[PackMoleculeId(count_molecules)] = partition_id;
         count_molecules ++;
 
@@ -195,9 +196,16 @@ bool try_pack(t_packer_opts* packer_opts,
                 prepackers[molecule_partition.second].pack_molecules_.push_back(prepacker.get_molecule(molecule_partition.first));
             }
         }
+
     for (int i = 0; i < PACKING_NUM_THREADS; i++){
-        prepackers[i].atom_molecule_ = prepacker.atom_molecule_;
-        prepackers[i].expected_lowest_cost_pb_gnode = prepacker.expected_lowest_cost_pb_gnode;
+        prepackers[i].expected_lowest_cost_pb_gnode.resize(g_vpr_ctx.atom().netlist().blocks().size(), nullptr);
+        for (auto block_id : g_vpr_ctx.atom().netlist().blocks()){
+            prepackers[i].atom_molecule_.push_back(prepacker.get_atom_molecule(block_id));
+            if (prepacker.get_expected_lowest_cost_pb_gnode(block_id) != nullptr)
+                prepackers[i].expected_lowest_cost_pb_gnode[block_id] = 
+                prepacker.get_expected_lowest_cost_pb_gnode(block_id);
+        }
+        // prepackers[i].expected_lowest_cost_pb_gnode = prepacker.expected_lowest_cost_pb_gnode;
         prepackers[i].list_of_pack_patterns = prepacker.list_of_pack_patterns;
         prepackers[i].chain_info_ = prepacker.chain_info_;
     }
@@ -371,7 +379,7 @@ bool try_pack(t_packer_opts* packer_opts,
                     attraction_groups.create_att_groups_for_all_regions();
                     VTR_LOG("Floorplan regions are overfull: trying to pack again with more attraction groups exploration. \n");
                     VTR_LOG("Pack iteration is %d\n", pack_iteration);
-                } else if (pack_iteration == PACKING_NUM_THREADS) {
+                } else if (pack_iteration == 4) {
                     attraction_groups.create_att_groups_for_all_regions();
                     VTR_LOG("Floorplan regions are overfull: trying to pack again with more attraction groups exploration and higher target pin utilization. \n");
                     VTR_LOG("Pack iteration is %d\n", pack_iteration);

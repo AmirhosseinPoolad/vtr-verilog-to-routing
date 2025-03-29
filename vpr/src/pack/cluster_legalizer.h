@@ -278,7 +278,9 @@ class ClusterLegalizer {
                      const t_pack_high_fanout_thresholds& high_fanout_thresholds,
                      ClusterLegalizationStrategy cluster_legalization_strategy,
                      bool enable_pin_feasibility_filter,
-                     int log_verbosity);
+                     int log_verbosity,
+                     const std::unordered_map<PackMoleculeId, int>& partition_map,
+                     int partition_num);
 
     // This class allocates and deallocates memory within. This class should not
     // be copied or moved to prevent it from double freeing / losing pointers.
@@ -524,6 +526,8 @@ class ClusterLegalizer {
     inline const AtomPBBimap& atom_pb_lookup() const { return atom_pb_lookup_; }
     inline AtomPBBimap& mutable_atom_pb_lookup() { return atom_pb_lookup_; }
 
+    inline bool is_cluster_in_partition(PackMoleculeId mol_id) const {return partition_map_.at(mol_id) == partition_num_;}
+
     /// @brief Destructor of the class. Frees allocated data.
     ~ClusterLegalizer();
 
@@ -595,4 +599,8 @@ class ClusterLegalizer {
     /// @brief A two way map between AtomBlockIds and pb types. This is a copy
     /// of the AtomPBBimap in the global context's AtomLookup
     AtomPBBimap atom_pb_lookup_;
+
+    const std::unordered_map<PackMoleculeId, int>& partition_map_;
+    int partition_num_;
+
 };

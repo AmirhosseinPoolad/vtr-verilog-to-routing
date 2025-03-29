@@ -1601,8 +1601,12 @@ ClusterLegalizer::ClusterLegalizer(const AtomNetlist& atom_netlist,
                                    const t_pack_high_fanout_thresholds& high_fanout_thresholds,
                                    ClusterLegalizationStrategy cluster_legalization_strategy,
                                    bool enable_pin_feasibility_filter,
-                                   int log_verbosity)
-    : prepacker_(prepacker) {
+                                   int log_verbosity,
+                                   const std::unordered_map<PackMoleculeId, int>& partition_map,
+                                   int partition_num)
+    : prepacker_(prepacker) 
+    , partition_map_(partition_map)
+    , partition_num_(partition_num) {
     // Verify that the inputs are valid.
     VTR_ASSERT_SAFE(lb_type_rr_graphs != nullptr);
 

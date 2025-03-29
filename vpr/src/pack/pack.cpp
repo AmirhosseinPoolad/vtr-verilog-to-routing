@@ -139,29 +139,26 @@ bool try_pack(t_packer_opts* packer_opts,
     // high_fanout_thresholds stores the threshold for nets to a block type to
     // be considered high fanout.
     t_pack_high_fanout_thresholds high_fanout_thresholds(packer_opts->high_fanout_threshold);
-
-    bool allow_unrelated_clustering = false;
-    if (packer_opts->allow_unrelated_clustering == e_unrelated_clustering::ON) {
-        allow_unrelated_clustering = true;
-    } else if (packer_opts->allow_unrelated_clustering == e_unrelated_clustering::OFF) {
-        allow_unrelated_clustering = false;
-    }
-
-    bool balance_block_type_util = false;
-    if (packer_opts->balance_block_type_utilization == e_balance_block_type_util::ON) {
-        balance_block_type_util = true;
-    } else if (packer_opts->balance_block_type_utilization == e_balance_block_type_util::OFF) {
-        balance_block_type_util = false;
-    }
-
     
     // Initialize the cluster legalizer.
     // Construct the APPack Context.
     APPackContext appack_ctx(flat_placement_info, device_ctx.grid);
+    
+    // PARALLEL TODO: add actual partitioning
+    // Have options:
+    // 1- Random
+    // 2- Hmetis
+    // 3- AP? Maybe?
+    constexpr int thread_count = 8;
+    vtr::RngContainer rng(0);
+    std::unordered_map<PackMoleculeId, int> partition_map;
+    for(auto mol : prepacker.molecules()){
+        partition_map[mol] = rng.irand(thread_count -1);
+    }
 
     std::vector<std::unique_ptr<ClusterLegalizer>> cluster_legalizers;
     std::vector<std::unique_ptr<GreedyClusterer>> clusterers;
-    for(int i = 0; i < 4; i++) {
+    for(int i = 0; i < thread_count; i++) {
         cluster_legalizers.push_back(std::make_unique<ClusterLegalizer>(atom_ctx.netlist(),
         prepacker,
         lb_type_rr_graphs,
@@ -169,7 +166,9 @@ bool try_pack(t_packer_opts* packer_opts,
         high_fanout_thresholds,
         ClusterLegalizationStrategy::SKIP_INTRA_LB_ROUTE,
         packer_opts->enable_pin_feasibility_filter,
-        packer_opts->pack_verbosity));
+        packer_opts->pack_verbosity,
+        std::ref(partition_map),
+        i));
 
         clusterers.push_back(std::make_unique<GreedyClusterer>(*packer_opts,
             *analysis_opts,
@@ -178,7 +177,9 @@ bool try_pack(t_packer_opts* packer_opts,
             high_fanout_thresholds,
             is_clock,
             is_global,
-            appack_ctx));
+            appack_ctx,
+            std::ref(partition_map),
+            i));
     }
 
     VTR_LOG("Packing with pin utilization targets: %s\n", cluster_legalizers[0]->get_target_external_pin_util().to_string().c_str());
@@ -187,7 +188,20 @@ bool try_pack(t_packer_opts* packer_opts,
 
     g_vpr_ctx.mutable_atom().mutable_lookup().set_atom_pb_bimap_lock(true);
     #pragma omp parallel for
-    for(int i = 0; i < 4; i++){
+    for(int i = 0; i < thread_count; i++){
+        bool allow_unrelated_clustering = false;
+        if (packer_opts->allow_unrelated_clustering == e_unrelated_clustering::ON) {
+            allow_unrelated_clustering = true;
+        } else if (packer_opts->allow_unrelated_clustering == e_unrelated_clustering::OFF) {
+            allow_unrelated_clustering = false;
+        }
+    
+        bool balance_block_type_util = false;
+        if (packer_opts->balance_block_type_utilization == e_balance_block_type_util::ON) {
+            balance_block_type_util = true;
+        } else if (packer_opts->balance_block_type_utilization == e_balance_block_type_util::OFF) {
+            balance_block_type_util = false;
+        }
         VTR_LOG("Thread #%d\n", omp_get_thread_num());
         int pack_iteration = 1;
         while (true) {
@@ -304,14 +318,16 @@ bool try_pack(t_packer_opts* packer_opts,
         for (auto net : g_vpr_ctx.atom().netlist().nets()) {
             g_vpr_ctx.mutable_atom().mutable_lookup().remove_atom_net(net);
         }
-        g_vpr_ctx.mutable_floorplanning().cluster_constraints.clear();
+        // g_vpr_ctx.mutable_floorplanning().cluster_constraints.clear();
         //attraction_groups.reset_attraction_groups();
 
             // Reset the cluster legalizer for re-clustering.
             cluster_legalizers[i].reset();
             ++pack_iteration;
         }
-}
+    }
+
+    printf("Done\n");
     /* Packing iterative improvement can be done here */
     /*       Use the re-cluster API to edit it        */
     /******************* Start *************************/
@@ -327,6 +343,9 @@ bool try_pack(t_packer_opts* packer_opts,
      */
     /******************** End **************************/
     g_vpr_ctx.mutable_atom().mutable_lookup().set_atom_pb_bimap_lock(false);
+
+    // PARALLEL TODO: Merge cluster legalizers
+
     g_vpr_ctx.mutable_atom().mutable_lookup().set_atom_to_pb_bimap(cluster_legalizers[0]->atom_pb_lookup());
     //check clustering and output it
     check_and_output_clustering(*cluster_legalizers[0], *packer_opts, is_clock, &arch);

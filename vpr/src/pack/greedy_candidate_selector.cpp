@@ -721,11 +721,19 @@ PackMoleculeId GreedyCandidateSelector::get_next_candidate_for_cluster(
     /* Grab highest gain molecule */
     // If this was a vector, this would just be a pop_back.
     PackMoleculeId best_molecule = PackMoleculeId::INVALID();
-    if (cluster_gain_stats.num_feasible_blocks > 0) {
+    while (cluster_gain_stats.num_feasible_blocks > 0) {
         cluster_gain_stats.num_feasible_blocks--;
         int index = cluster_gain_stats.num_feasible_blocks;
-        best_molecule = cluster_gain_stats.feasible_blocks[index];
+        PackMoleculeId candidate_molecule = cluster_gain_stats.feasible_blocks[index];
+        if(cluster_legalizer.is_mol_clustered(candidate_molecule)) {
+            continue;
+        }
+        if(!cluster_legalizer.is_cluster_in_partition(candidate_molecule)) {
+            continue;
+        }
+        best_molecule = candidate_molecule;
         VTR_ASSERT(!cluster_legalizer.is_mol_clustered(best_molecule));
+        break;
     }
 
     // If we are allowing unrelated clustering and no molecule has been found,
@@ -734,6 +742,7 @@ PackMoleculeId GreedyCandidateSelector::get_next_candidate_for_cluster(
         const t_appack_options& appack_options = appack_ctx_.appack_options;
         if (appack_options.use_appack) {
             if (num_unrelated_clustering_attempts_ < appack_options.max_unrelated_clustering_attempts) {
+                // TODO: need to fix this to take partitions into account
                 best_molecule = get_unrelated_candidate_for_cluster_appack(cluster_gain_stats,
                                                                            cluster_id,
                                                                            cluster_legalizer);
@@ -752,7 +761,7 @@ PackMoleculeId GreedyCandidateSelector::get_next_candidate_for_cluster(
         VTR_LOGV(!best_molecule && log_verbosity_ > 2,
                  "\tNo related molecule found and unrelated clustering disabled\n");
     }
-
+    VTR_ASSERT((best_molecule == PackMoleculeId::INVALID()) || cluster_legalizer.is_cluster_in_partition(best_molecule));
     return best_molecule;
 }
 
@@ -1201,7 +1210,7 @@ PackMoleculeId GreedyCandidateSelector::get_unrelated_candidate_for_cluster(
         PackMoleculeId molecule = PackMoleculeId::INVALID();
         for (PackMoleculeId mol_id : unrelated_clustering_data_[ext_inps]) {
             /* TODO: Get better candidate atom block in future, eg. return most timing critical or some other smarter metric */
-            if (!cluster_legalizer.is_mol_clustered(mol_id)) {
+            if (!cluster_legalizer.is_mol_clustered(mol_id) && cluster_legalizer.is_cluster_in_partition(mol_id)) {
                 /* TODO: I should be using a better filtering check especially when I'm
                  * dealing with multiple clock/multiple global reset signals where the clock/reset
                  * packed in matters, need to do later when I have the circuits to check my work */

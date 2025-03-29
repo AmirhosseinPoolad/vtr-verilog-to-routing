@@ -220,7 +220,11 @@ PackMoleculeId GreedySeedSelector::get_next_seed(const Prepacker& prepacker,
         // are already clustered. This process assumes that once an atom
         // is clustered it will never become unclustered.
         AtomBlockId seed_blk_id = seed_atoms_[seed_index_++];
+        PackMoleculeId seed_molecule_id = prepacker.get_atom_molecule(seed_blk_id);
 
+        if (!cluster_legalizer.is_cluster_in_partition(seed_molecule_id)) {
+            continue;
+        }
         // If this atom has been clustered, it cannot be proposed as a seed.
         // Skip to the next seed.
         if (cluster_legalizer.is_atom_clustered(seed_blk_id))
@@ -228,7 +232,7 @@ PackMoleculeId GreedySeedSelector::get_next_seed(const Prepacker& prepacker,
 
         // Get the molecule that contains this atom and return it as the
         // next seed.
-        PackMoleculeId seed_molecule_id = prepacker.get_atom_molecule(seed_blk_id);
+        
         VTR_ASSERT(!cluster_legalizer.is_mol_clustered(seed_molecule_id));
         return seed_molecule_id;
     }

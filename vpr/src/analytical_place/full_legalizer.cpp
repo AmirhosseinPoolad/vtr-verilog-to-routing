@@ -291,7 +291,9 @@ void NaiveFullLegalizer::create_clusters(const PartialPlacement& p_placement) {
                                        high_fanout_thresholds,
                                        ClusterLegalizationStrategy::FULL,
                                        vpr_setup_.PackerOpts.enable_pin_feasibility_filter,
-                                       vpr_setup_.PackerOpts.pack_verbosity);
+                                       vpr_setup_.PackerOpts.pack_verbosity,
+                                       std::unordered_map<PackMoleculeId, int>(),
+                                       0);
     // Create clusters for each tile.
     //  Start by giving each root tile a unique ID.
     size_t grid_width = device_grid_.width();

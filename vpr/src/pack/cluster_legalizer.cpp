@@ -1660,6 +1660,8 @@ void ClusterLegalizer::verify() {
     */
     for (auto blk_id : atom_ctx.netlist().blocks()) {
         //Each atom should be part of a pb
+        if ((size_t)prepacker_.get_atom_molecule(blk_id) >= prepacker_.pack_molecule_ids_.size())
+           continue;  
         const t_pb* atom_pb = atom_pb_lookup().atom_pb(blk_id);
         if (!atom_pb) {
             VPR_FATAL_ERROR(VPR_ERROR_PACK,
@@ -1706,6 +1708,8 @@ void ClusterLegalizer::verify() {
     }
 
     for (auto blk_id : atom_ctx.netlist().blocks()) {
+        if ((size_t)prepacker_.get_atom_molecule(blk_id) >= prepacker_.pack_molecule_ids_.size())
+           continue;          
         if (!atoms_checked.count(blk_id)) {
             VPR_FATAL_ERROR(VPR_ERROR_PACK,
                             "Atom block %s not found in any cluster.\n",

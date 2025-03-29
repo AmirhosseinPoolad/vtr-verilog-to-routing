@@ -24,7 +24,7 @@
 
 #include "omp.h"
 
-#define PACKING_NUM_THREADS 1
+#define PACKING_NUM_THREADS 2
 
 static bool try_size_device_grid(const t_arch& arch,
                                  const std::map<t_logical_block_type_ptr, size_t>& num_type_instances,
@@ -173,6 +173,9 @@ bool try_pack(t_packer_opts* packer_opts,
     std::ifstream partitioned_graph_file("partitioned_graph.txt");
     std::string line;
     std::map<PackMoleculeId, int> molecule_partitions; // Must be read from the associated file
+    // Store moleculd ids of each packer.
+    std::vector<PackMoleculeId> assigned_molecule_ids[PACKING_NUM_THREADS];
+    std::map<PackMoleculeId, PackMoleculeId> prepackers_molecule_id_mapping[PACKING_NUM_THREADS];
     if (!partitioned_graph_file.is_open()) {
         std::cerr << "Could not open the partitioned graph file.\n";
         return 1;
@@ -181,9 +184,10 @@ bool try_pack(t_packer_opts* packer_opts,
     size_t count_molecules = 0;
     while (std::getline(partitioned_graph_file, line))
     {
-        // partition_id = std::stoi(line);
-        partition_id = 0;
+        partition_id = std::stoi(line);
+        // partition_id = 0;
         molecule_partitions[PackMoleculeId(count_molecules)] = partition_id;
+        assigned_molecule_ids[partition_id].push_back(PackMoleculeId(count_molecules));
         count_molecules ++;
 
     }
@@ -192,22 +196,47 @@ bool try_pack(t_packer_opts* packer_opts,
             if ((size_t)molecule_partition.first < prepacker.pack_molecules_.size())
             {
                 VTR_ASSERT(molecule_partition.first.is_valid());
-                prepackers[molecule_partition.second].pack_molecule_ids_.push_back(molecule_partition.first);
-                prepackers[molecule_partition.second].pack_molecules_.push_back(prepacker.get_molecule(molecule_partition.first));
+                auto molecule_info = prepacker.get_molecule(molecule_partition.first);
+                // New IDs must be assigned to each molecule
+                PackMoleculeId new_molecule_id = PackMoleculeId(prepackers[molecule_partition.second].
+                    pack_molecules_.size());
+                t_pack_molecule new_molecule;
+                new_molecule.type = molecule_info.type;
+                new_molecule.root = molecule_info.root;
+                new_molecule.pack_pattern = molecule_info.pack_pattern;
+                new_molecule.atom_block_ids = molecule_info.atom_block_ids;
+                new_molecule.base_gain = molecule_info.base_gain;
+                new_molecule.chain_id = molecule_info.chain_id;
+                prepackers_molecule_id_mapping[molecule_partition.second].insert(
+                    std::make_pair(molecule_partition.first, new_molecule_id)
+                );
+                prepackers[molecule_partition.second].pack_molecule_ids_.push_back(new_molecule_id);
+                prepackers[molecule_partition.second].pack_molecules_.push_back(std::move(new_molecule));
+                // prepackers[molecule_partition.second].chain_info_
+                //         .push_back(prepacker.get_molecule_chain_info(molecule_info.chain_id));
             }
         }
 
     for (int i = 0; i < PACKING_NUM_THREADS; i++){
         prepackers[i].expected_lowest_cost_pb_gnode.resize(g_vpr_ctx.atom().netlist().blocks().size(), nullptr);
+        prepackers[i].atom_molecule_.resize(g_vpr_ctx.atom().netlist().blocks().size(), PackMoleculeId::INVALID());
         for (auto block_id : g_vpr_ctx.atom().netlist().blocks()){
-            prepackers[i].atom_molecule_.push_back(prepacker.get_atom_molecule(block_id));
+            if ((std::find(assigned_molecule_ids[i].begin(), assigned_molecule_ids[i].end(),
+                prepacker.get_atom_molecule(block_id)) != assigned_molecule_ids[i].end())){
+                    prepackers[i].atom_molecule_[block_id] = 
+                        prepackers_molecule_id_mapping[i].at(prepacker.get_atom_molecule(block_id));
+
+                    if (prepacker.get_expected_lowest_cost_pb_gnode(block_id) != nullptr)
+                        prepackers[i].expected_lowest_cost_pb_gnode[block_id] = 
+                        prepacker.get_expected_lowest_cost_pb_gnode(block_id);
+                }
             if (prepacker.get_expected_lowest_cost_pb_gnode(block_id) != nullptr)
                 prepackers[i].expected_lowest_cost_pb_gnode[block_id] = 
                 prepacker.get_expected_lowest_cost_pb_gnode(block_id);
         }
         // prepackers[i].expected_lowest_cost_pb_gnode = prepacker.expected_lowest_cost_pb_gnode;
-        prepackers[i].list_of_pack_patterns = prepacker.list_of_pack_patterns;
         prepackers[i].chain_info_ = prepacker.chain_info_;
+        prepackers[i].list_of_pack_patterns = prepacker.list_of_pack_patterns;
     }
 
     // We keep track of the overfilled partition regions from all pack iterations in

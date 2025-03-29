@@ -172,6 +172,8 @@ GreedySeedSelector::GreedySeedSelector(const AtomNetlist& atom_netlist,
 
     // Get the seed gain of each atom.
     for (AtomBlockId blk_id : atom_netlist.blocks()) {
+        if ((size_t)prepacker.get_atom_molecule(blk_id) >= prepacker.pack_molecule_ids_.size())
+            continue;
         atom_gains[blk_id] = get_seed_gain(blk_id,
                                            atom_netlist,
                                            prepacker,
@@ -219,6 +221,8 @@ PackMoleculeId GreedySeedSelector::get_next_seed(const Prepacker& prepacker,
         // Skip to the next seed.
         if (cluster_legalizer.is_atom_clustered(seed_blk_id))
             continue;
+        if ((size_t)prepacker.get_atom_molecule(seed_blk_id) >= prepacker.pack_molecule_ids_.size())
+            continue;            
 
         // Get the molecule that contains this atom and return it as the
         // next seed.

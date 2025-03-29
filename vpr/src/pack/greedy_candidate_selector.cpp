@@ -1096,6 +1096,8 @@ void GreedyCandidateSelector::load_transitive_fanout_candidates(
                 // iterate over all the pins of the net
                 for (AtomPinId tpin : atom_netlist_.net_pins(tnet)) {
                     AtomBlockId blk_id = atom_netlist_.pin_block(tpin);
+                    if ((size_t)prepacker_.get_atom_molecule(blk_id) >= prepacker_.pack_molecule_ids_.size())
+                        continue;
                     // Ignore blocks which have already been packed.
                     if (cluster_legalizer.is_atom_clustered(blk_id))
                         continue;

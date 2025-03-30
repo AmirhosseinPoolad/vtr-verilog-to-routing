@@ -313,7 +313,6 @@ bool try_pack(t_packer_opts* packer_opts,
 
                 VPR_FATAL_ERROR(VPR_ERROR_OTHER, "Failed to find device which satisfies resource requirements required: %s (available %s)", resource_reqs.c_str(), resource_avail.c_str());
             }
-
         //Reset clustering for re-packing
         for (auto net : g_vpr_ctx.atom().netlist().nets()) {
             g_vpr_ctx.mutable_atom().mutable_lookup().remove_atom_net(net);
@@ -344,12 +343,27 @@ bool try_pack(t_packer_opts* packer_opts,
     /******************** End **************************/
     g_vpr_ctx.mutable_atom().mutable_lookup().set_atom_pb_bimap_lock(false);
 
-    // PARALLEL TODO: Merge cluster legalizers
+    verify_clustering(cluster_legalizers);
+    AtomPBBimap final_atom_pb;
+    for (auto atom_blk : g_vpr_ctx.atom().netlist().blocks()){
+        for(auto &cluster_legalizer : cluster_legalizers) {
+            auto atom_pb = cluster_legalizer->atom_pb_lookup().atom_pb(atom_blk);
+            if (atom_pb != nullptr) {
+                final_atom_pb.set_atom_pb(atom_blk, atom_pb);
+                break;
+            }
+        }
+    }
+    
+    g_vpr_ctx.mutable_atom().mutable_lookup().set_atom_to_pb_bimap(final_atom_pb);
 
-    g_vpr_ctx.mutable_atom().mutable_lookup().set_atom_to_pb_bimap(cluster_legalizers[0]->atom_pb_lookup());
+    for (auto atom_blk : g_vpr_ctx.atom().netlist().blocks()){
+        VTR_ASSERT(g_vpr_ctx.mutable_atom().mutable_lookup().atom_pb_bimap().atom_pb(atom_blk) != nullptr);
+    }
+
     //check clustering and output it
-    check_and_output_clustering(*cluster_legalizers[0], *packer_opts, is_clock, &arch);
-
+    // cluster_legalizers[0]->mutable_atom_pb_lookup() = final_atom_pb_bimap;
+    check_and_output_clustering(cluster_legalizers, *packer_opts, is_clock, &arch);
     VTR_LOG("\n");
     VTR_LOG("Netlist conversion complete.\n");
     VTR_LOG("\n");

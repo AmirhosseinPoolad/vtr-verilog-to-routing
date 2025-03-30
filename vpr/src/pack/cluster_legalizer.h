@@ -13,6 +13,7 @@
 #pragma once
 
 #include <vector>
+#include <span>
 #include "atom_netlist_fwd.h"
 #include "noc_data_types.h"
 #include "partition_region.h"
@@ -507,8 +508,7 @@ class ClusterLegalizer {
         cluster_legalization_strategy_ = strategy;
     }
 
-    /*
-     * @brief Set how verbose the log messages should be for the cluster legalizer.
+    /* the log messages should be for the cluster legalizer.
      *
      * This allows the user to set the verbosity at different points for easier
      * usability.
@@ -518,6 +518,7 @@ class ClusterLegalizer {
      * Set the verbosity to 5 to see all the log messages in the legalizer.
      *
      *  @param verbosity    The value to set the verbosity to.
+     * @brief Set how verbose
      */
     inline void set_log_verbosity(int verbosity) {
         log_verbosity_ = verbosity;
@@ -528,25 +529,27 @@ class ClusterLegalizer {
 
     inline bool is_cluster_in_partition(PackMoleculeId mol_id) const {return partition_map_.at(mol_id) == partition_num_;}
 
+    void merge_with_others(std::vector<std::unique_ptr<ClusterLegalizer>>& cluster_legalizers);
+
     /// @brief Destructor of the class. Frees allocated data.
     ~ClusterLegalizer();
 
   private:
     /// @brief A vector of the legalization cluster IDs. If any of them are
     ///        invalid, then that means that the cluster has been destroyed.
-    vtr::vector_map<LegalizationClusterId, LegalizationClusterId> legalization_cluster_ids_;
+    vtr::vector_map<LegalizationClusterId, LegalizationClusterId> legalization_cluster_ids_; // MERGED
 
     /// @brief Lookup table for which cluster each molecule is in.
-    vtr::vector_map<PackMoleculeId, LegalizationClusterId> molecule_cluster_;
+    vtr::vector_map<PackMoleculeId, LegalizationClusterId> molecule_cluster_; // MERGED
 
     /// @brief Clustering chain information for each of the chains in the prepacker.
-    vtr::vector_map<MoleculeChainId, t_clustering_chain_info> clustering_chain_info_;
+    vtr::vector_map<MoleculeChainId, t_clustering_chain_info> clustering_chain_info_; // MERGED
 
     /// @brief List of all legalization clusters.
-    vtr::vector_map<LegalizationClusterId, LegalizationCluster> legalization_clusters_;
+    vtr::vector_map<LegalizationClusterId, LegalizationCluster> legalization_clusters_; // MERGED
 
     /// @brief A lookup-table for which cluster the given atom is packed into.
-    vtr::vector_map<AtomBlockId, LegalizationClusterId> atom_cluster_;
+    vtr::vector_map<AtomBlockId, LegalizationClusterId> atom_cluster_; //MERGED
 
     /// @brief Stores the NoC group ID of each atom block. Atom blocks that
     ///        belong to different NoC groups can't be clustered with each other
@@ -598,9 +601,11 @@ class ClusterLegalizer {
 
     /// @brief A two way map between AtomBlockIds and pb types. This is a copy
     /// of the AtomPBBimap in the global context's AtomLookup
-    AtomPBBimap atom_pb_lookup_;
+    AtomPBBimap atom_pb_lookup_; // MERGED
 
     const std::unordered_map<PackMoleculeId, int>& partition_map_;
     int partition_num_;
 
 };
+
+void verify_clustering(std::vector<std::unique_ptr<ClusterLegalizer>>& cluster_legalizers);

@@ -609,17 +609,20 @@ static void clustering_xml_block(pugi::xml_node& parent_node, t_logical_block_ty
 
 static void clustering_xml_blocks_from_legalizer(pugi::xml_node& block_node,
                                                  const IntraLbPbPinLookup& pb_graph_pin_lookup_from_index_by_type,
-                                                 ClusterLegalizer& cluster_legalizer) {
+                                                 const std::vector<std::unique_ptr<ClusterLegalizer>>& cluster_legalizers) {
     // Finalize the cluster legalization by ensuring that each cluster pb has
     // its pb_route calculated.
-    cluster_legalizer.finalize();
-    for (LegalizationClusterId cluster_id : cluster_legalizer.clusters()) {
-        clustering_xml_block(block_node,
-                             cluster_legalizer.get_cluster_type(cluster_id),
-                             pb_graph_pin_lookup_from_index_by_type,
-                             cluster_legalizer.get_cluster_pb(cluster_id),
-                             size_t(cluster_id),
-                             cluster_legalizer.get_cluster_pb(cluster_id)->pb_route);
+    size_t id_counter = 0;
+    for (auto& cluster_legalizer : cluster_legalizers) {
+        cluster_legalizer->finalize();
+        for (LegalizationClusterId cluster_id : cluster_legalizer->clusters()) {
+            clustering_xml_block(block_node,
+                                cluster_legalizer->get_cluster_type(cluster_id),
+                                pb_graph_pin_lookup_from_index_by_type,
+                                cluster_legalizer->get_cluster_pb(cluster_id),
+                                id_counter++,
+                                cluster_legalizer->get_cluster_pb(cluster_id)->pb_route);
+        }
     }
 }
 
@@ -640,7 +643,7 @@ static void clustering_xml_blocks_from_netlist(pugi::xml_node& block_node,
 /* This routine dumps out the output netlist in a format suitable for  *
  * input to vpr. This routine also dumps out the internal structure of *
  * the cluster, in essentially a graph based format.                   */
-void output_clustering(ClusterLegalizer* cluster_legalizer_ptr, bool global_clocks, const std::unordered_set<AtomNetId>& is_clock, const std::string& architecture_id, const char* out_fname, bool skip_clustering, bool from_legalizer) {
+void output_clustering(const std::vector<std::unique_ptr<ClusterLegalizer>>& cluster_legalizers, bool global_clocks, const std::unordered_set<AtomNetId>& is_clock, const std::string& architecture_id, const char* out_fname, bool skip_clustering, bool from_legalizer) {
     const DeviceContext& device_ctx = g_vpr_ctx.device();
     const AtomNetlist& atom_nlist = g_vpr_ctx.atom().netlist();
 
@@ -702,17 +705,16 @@ void output_clustering(ClusterLegalizer* cluster_legalizer_ptr, bool global_cloc
 
     if (skip_clustering == false) {
         if (from_legalizer) {
-            VTR_ASSERT(cluster_legalizer_ptr != nullptr);
-            clustering_xml_blocks_from_legalizer(block_node, pb_graph_pin_lookup_from_index_by_type, *cluster_legalizer_ptr);
+            clustering_xml_blocks_from_legalizer(block_node, pb_graph_pin_lookup_from_index_by_type, cluster_legalizers);
         } else {
-            VTR_ASSERT(cluster_legalizer_ptr == nullptr);
             clustering_xml_blocks_from_netlist(block_node, pb_graph_pin_lookup_from_index_by_type);
         }
     }
 
     out_xml.save_file(out_fname);
-
-    print_stats(cluster_legalizer_ptr, from_legalizer);
+    
+    // PARALLEL TODO: Fix this
+    // print_stats(cluster_legalizers, from_legalizer);
 }
 
 /********************************************************************
@@ -731,7 +733,7 @@ void write_packing_results_to_xml(const bool& global_clocks,
 
     // Since the cluster legalizer is not being used to output the clustering
     // (from_legalizer is false), passing in nullptr.
-    output_clustering(nullptr,
+    output_clustering(std::vector<std::unique_ptr<ClusterLegalizer>>(),
                       global_clocks,
                       is_clock,
                       architecture_id,

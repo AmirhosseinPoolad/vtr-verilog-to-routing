@@ -21,7 +21,14 @@
 #include "vtr_assert.h"
 #include "vtr_log.h"
 
+#include <iostream>
+#include <fstream>
+
 #include "omp.h"
+
+#include <mtkahypar.h>
+
+static constexpr int thread_count = 8;
 
 static bool try_size_device_grid(const t_arch& arch,
                                  const std::map<t_logical_block_type_ptr, size_t>& num_type_instances,
@@ -149,11 +156,122 @@ bool try_pack(t_packer_opts* packer_opts,
     // 1- Random
     // 2- Hmetis
     // 3- AP? Maybe?
-    constexpr int thread_count = 8;
-    vtr::RngContainer rng(0);
+    
     std::unordered_map<PackMoleculeId, int> partition_map;
-    for(auto mol : prepacker.molecules()){
-        partition_map[mol] = rng.irand(thread_count -1);
+    std::ofstream graph_traverse_file("graph_traverse.txt", std::ios::out);
+    graph_traverse_file << g_vpr_ctx.atom().netlist().nets().size() << " " << prepacker.molecules().size() << std::endl;
+    if (true){
+        std::vector<AtomBlockId> block_ids;
+        std::vector<PackMoleculeId> molecule_ids;
+        // Create graph of molecules
+        bool put_space = false;
+        if (graph_traverse_file.is_open()){
+            for (auto net_id : g_vpr_ctx.atom().netlist().nets()){
+                molecule_ids.clear();
+                put_space = false;
+                for (auto pin_id : g_vpr_ctx.atom().netlist().net_pins(net_id)){
+                    auto target_molecule_id = prepacker.get_atom_molecule(g_vpr_ctx.atom().netlist().pin_block(pin_id));
+                    auto it = std::find(molecule_ids.begin(), molecule_ids.end(), target_molecule_id);
+                    if (it == molecule_ids.end()){
+                        molecule_ids.push_back(target_molecule_id);
+                    }
+                }
+
+                if (molecule_ids.size() > 1)
+                {
+                    for (auto target_molecule_id : molecule_ids){
+                        if (put_space){
+                            graph_traverse_file << " ";  
+                        }                    
+                        graph_traverse_file << ((int)target_molecule_id + 1);
+                        put_space = true;
+                    }
+                }            
+                graph_traverse_file << "\n";
+            }
+            graph_traverse_file.close();
+        }
+        else 
+        {
+            std::cerr << "Error opening file: " << std::strerror(errno) << std::endl;
+        }   
+        // Start partitioning
+        mt_kahypar_error_t error{};
+        // Initialize
+        mt_kahypar_initialize(1,
+        //std::thread::hardware_concurrency() /* use all available cores */,
+        true /* activate interleaved NUMA allocation policy */ );
+        // Setup partitioning context
+        mt_kahypar_context_t* context = mt_kahypar_context_from_preset(DEFAULT);
+        // In the following, we partition a hypergraph into two blocks
+        // with an allowed imbalance of 3% and optimize the connective metric (KM1)
+        mt_kahypar_set_partitioning_parameters(context,
+        thread_count /* number of blocks */, 0.03 /* imbalance parameter */,
+        KM1 /* objective function */);
+        mt_kahypar_set_seed(42 /* seed */);
+        // Enable logging
+        mt_kahypar_status_t status =
+        mt_kahypar_set_context_parameter(context, VERBOSE, "1", &error);
+        VTR_ASSERT(status == SUCCESS);
+        // Load Hypergraph for DEFAULT preset
+        mt_kahypar_hypergraph_t hypergraph =
+        mt_kahypar_read_hypergraph_from_file("graph_traverse.txt",
+            context, HMETIS /* file format */, &error);
+        if (error.status != SUCCESS){
+            std::cout << error.msg << std::endl; std::exit(1);
+        }
+        if (hypergraph.hypergraph == nullptr) {
+        std::cout << error.msg << std::endl; std::exit(1);
+        }
+        // Partition Hypergraph
+        mt_kahypar_partitioned_hypergraph_t partitioned_hg =
+        mt_kahypar_partition(hypergraph, context, &error);
+        if (partitioned_hg.partitioned_hg == nullptr) {
+            std::cout << error.msg << std::endl; std::exit(1);
+        }
+        // Extract Partition
+        auto partition = std::make_unique<mt_kahypar_partition_id_t[]>(
+        mt_kahypar_num_hypernodes(hypergraph));
+        mt_kahypar_get_partition(partitioned_hg, partition.get());
+        // Extract Block Weights
+        auto block_weights = std::make_unique<mt_kahypar_hypernode_weight_t[]>(2);
+        mt_kahypar_get_block_weights(partitioned_hg, block_weights.get());
+        // Compute Metrics
+        const double imbalance = mt_kahypar_imbalance(partitioned_hg, context);
+        const int km1 = mt_kahypar_km1(partitioned_hg);
+        mt_kahypar_write_partition_to_file(partitioned_hg, "partitioned_graph.txt", &error);
+        // Output Results
+        std::cout << "Partitioning Results:" << std::endl;
+        std::cout << "Imbalance         = " << imbalance << std::endl;
+        std::cout << "Km1               = " << km1 << std::endl;
+        std::cout << "Weight of Block 0 = " << block_weights[0] << std::endl;
+        std::cout << "Weight of Block 1 = " << block_weights[1] << std::endl;
+        mt_kahypar_free_context(context);
+        mt_kahypar_free_hypergraph(hypergraph);
+        mt_kahypar_free_partitioned_hypergraph(partitioned_hg);
+
+        // End of partitioning
+
+        std::ifstream partitioned_graph_file("partitioned_graph.txt");
+        std::string line;
+        if (!partitioned_graph_file.is_open()) {
+            std::cerr << "Could not open the partitioned graph file.\n";
+            return 1;
+        }    
+        int partition_id;
+        size_t count_molecules = 0;
+        while (std::getline(partitioned_graph_file, line))
+        {
+            partition_id = std::stoi(line);
+            partition_map[PackMoleculeId(count_molecules)] = partition_id;
+            count_molecules ++;
+        }
+    }
+    else {
+        vtr::RngContainer rng(0);
+        for(auto mol : prepacker.molecules()){
+            partition_map[mol] = rng.irand(thread_count -1);
+        }
     }
 
     std::vector<std::unique_ptr<ClusterLegalizer>> cluster_legalizers;

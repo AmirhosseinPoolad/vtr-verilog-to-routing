@@ -28,7 +28,7 @@
 
 #include <mtkahypar.h>
 
-static constexpr int thread_count = 8;
+// static constexpr int thread_count = 2;
 
 static bool try_size_device_grid(const t_arch& arch,
                                  const std::map<t_logical_block_type_ptr, size_t>& num_type_instances,
@@ -65,6 +65,7 @@ bool try_pack(t_packer_opts* packer_opts,
               const t_det_routing_arch& routing_arch,
               std::vector<t_lb_type_rr_node>* lb_type_rr_graphs,
               const FlatPlacementInfo& flat_placement_info) {
+    int thread_count = packer_opts->num_threads;
     const AtomContext& atom_ctx = g_vpr_ctx.atom();
     const DeviceContext& device_ctx = g_vpr_ctx.device();
     // The clusterer modifies the device context by increasing the size of the
@@ -305,8 +306,9 @@ bool try_pack(t_packer_opts* packer_opts,
 
 
     g_vpr_ctx.mutable_atom().mutable_lookup().set_atom_pb_bimap_lock(true);
-    #pragma omp parallel for
-    for(int i = 0; i < thread_count; i++){
+    #pragma omp parallel num_threads(thread_count)
+    {
+        int i = omp_get_thread_num();
         bool allow_unrelated_clustering = false;
         if (packer_opts->allow_unrelated_clustering == e_unrelated_clustering::ON) {
             allow_unrelated_clustering = true;
@@ -432,14 +434,15 @@ bool try_pack(t_packer_opts* packer_opts,
                 VPR_FATAL_ERROR(VPR_ERROR_OTHER, "Failed to find device which satisfies resource requirements required: %s (available %s)", resource_reqs.c_str(), resource_avail.c_str());
             }
         //Reset clustering for re-packing
-        for (auto net : g_vpr_ctx.atom().netlist().nets()) {
-            g_vpr_ctx.mutable_atom().mutable_lookup().remove_atom_net(net);
-        }
+        // PARALLEL FIXME: This probably messes up sync_netlists_to_routing_flat
+        // for (auto net : g_vpr_ctx.atom().netlist().nets()) {
+        //     g_vpr_ctx.mutable_atom().mutable_lookup().remove_atom_net(net);
+        // }
         // g_vpr_ctx.mutable_floorplanning().cluster_constraints.clear();
         //attraction_groups.reset_attraction_groups();
 
             // Reset the cluster legalizer for re-clustering.
-            cluster_legalizers[i].reset();
+            cluster_legalizers[i]->reset();
             ++pack_iteration;
         }
     }

@@ -737,6 +737,7 @@ struct t_packer_opts {
     int pack_num_moves;
     std::string pack_move_type;
     bool load_flat_placement;
+    int num_threads;
 };
 
 /**

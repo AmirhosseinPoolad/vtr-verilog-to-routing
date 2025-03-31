@@ -120,6 +120,8 @@ struct t_options {
     argparse::ArgValue<bool> use_attraction_groups;
     argparse::ArgValue<int> pack_num_moves;
     argparse::ArgValue<std::string> pack_move_type;
+    argparse::ArgValue<int> pack_num_threads;
+
     /* Placement options */
     argparse::ArgValue<int> Seed;
     argparse::ArgValue<bool> ShowPlaceTiming;

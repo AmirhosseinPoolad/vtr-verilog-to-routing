@@ -239,6 +239,8 @@ class GreedyClusterer {
     ///        and propose better candidates based on a flat placement.
     const APPackContext& appack_ctx_;
 
+
+    // PARALLEL TODO: We have a problem when free-ing this in the destructor.
     /// @brief Pre-computed logical block types for each model in the architecture.
     const std::map<const t_model*, std::vector<t_logical_block_type_ptr>> primitive_candidate_block_types_;
 

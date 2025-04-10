@@ -2,7 +2,10 @@
 #define PACK_H
 
 #include <unordered_set>
+#include <unordered_map>
 #include <vector>
+#include "prepack.h"
+#include "flat_placement_types.h"
 
 class AtomNetId;
 class FlatPlacementInfo;
@@ -40,7 +43,7 @@ bool try_pack(t_packer_opts* packer_opts,
 std::unordered_set<AtomNetId> alloc_and_load_is_clock();
 
 std::unordered_map<PackMoleculeId, int> partition_flat_placed_mols(const FlatPlacementInfo& flat_placement_info,
-    const PrePackingContext& prepacker,
+    const Prepacker& prepacker,
     int thread_count,
     const t_flat_pl_loc& min_coords,
     const t_flat_pl_loc& max_coords,

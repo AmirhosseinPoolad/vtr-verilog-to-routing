@@ -27,6 +27,7 @@
 #include "omp.h"
 
 #include <mtkahypar.h>
+#include <flat_placement_utils.h>
 
 // static constexpr int thread_count = 2;
 
@@ -113,8 +114,8 @@ bool try_pack(t_packer_opts* packer_opts,
     // partition regions to the current iteration.
     std::vector<PartitionRegion> overfull_partition_regions;
 
-    t_flat_pl_loc min_coords = ({std::numeric_limits<float>::max(), std::numeric_limits<float>::max(), std::numeric_limits<float>::max()});
-    t_flat_pl_loc max_coords = ({0.0f, 0.0f, 0.0f});
+    t_flat_pl_loc min_coords({std::numeric_limits<float>::max(), std::numeric_limits<float>::max(), std::numeric_limits<float>::max()});
+    t_flat_pl_loc max_coords({0.0f, 0.0f, 0.0f});
     t_flat_pl_loc midpoint({0.0f, 0.0f, 0.0f});
 
     // Verify that the Flat Placement is valid for packing.
@@ -135,13 +136,15 @@ bool try_pack(t_packer_opts* packer_opts,
         }
 
         // Get min/max coordinates of the flat_placement_info
+        // TODO: Find better place for this to spread out compute with locality
         for (AtomBlockId blk_id : atom_ctx.netlist().blocks()) {
-            max_coords.x = (flat_placement_info.blx_x_pos[blk_id] > max_coords.x) ? flat_placement_info.blx_x_pos[blk_id] : max_coords.x;
-            max_coords.y = (flat_placement_info.blx_y_pos[blk_id] > max_coords.y) ? flat_placement_info.blx_y_pos[blk_id] : max_coords.y;
-            max_coords.layer = (flat_placement_info.blx_layer[blk_id] > max_coords.layer) ? flat_placement_info.blx_layer[blk_id] : max_coords.layer;
-            min_coords.x = (flat_placement_info.blx_x_pos[blk_id] < min_coords.x) ? flat_placement_info.blx_x_pos[blk_id] : min_coords.x;
-            min_coords.y = (flat_placement_info.blx_y_pos[blk_id] < min_coords.y) ? flat_placement_info.blx_y_pos[blk_id] : min_coords.y;
-            min_coords.layer = (flat_placement_info.blx_layer[blk_id] < min_coords.layer) ? flat_placement_info.blx_layer[blk_id] : min_coords.layer;
+            auto cur_blk_loc = flat_placement_info.get_pos(blk_id);
+            max_coords.x = (cur_blk_loc.x > max_coords.x) ? cur_blk_loc.x : max_coords.x;
+            max_coords.y = (cur_blk_loc.y > max_coords.y) ? cur_blk_loc.y : max_coords.y;
+            max_coords.layer = (cur_blk_loc.layer > max_coords.layer) ? cur_blk_loc.layer : max_coords.layer;
+            min_coords.x = (cur_blk_loc.x < min_coords.x) ? cur_blk_loc.x : min_coords.x;
+            min_coords.y = (cur_blk_loc.y < min_coords.y) ? cur_blk_loc.y : min_coords.y;
+            min_coords.layer = (cur_blk_loc.layer < min_coords.layer) ? cur_blk_loc.layer : min_coords.layer;
         }
 
         // Get the midpoint of the flat_placement_info
@@ -186,7 +189,7 @@ bool try_pack(t_packer_opts* packer_opts,
 
     // If AP is enabled, do quadrant dividing
     // Flat packer should be verified already
-    if (flat_placement_info.valid()) {
+    if (flat_placement_info.valid) {
         // Get the number of partitions
         // Can work for thread_count of 1, 2, 4, 8, 16.
         partition_map = partition_flat_placed_mols(flat_placement_info,
@@ -196,11 +199,14 @@ bool try_pack(t_packer_opts* packer_opts,
                                             max_coords,
                                             midpoint);
         // Print the partition map
-        VTR_LOGV(log_verbosity >= 3, "Partition map:\n");
+        VTR_LOGV(packer_opts->pack_verbosity >= 3, "Partition map:\n");
         
         for (auto it = partition_map.begin(); it != partition_map.end(); ++it) {
-            VTR_LOGV(log_verbosity >= 3, "Molecule %zu is in partition %d ", it->first, it->second);
-            VTR_LOGV(log_verbosity >= 3, "With location (%g, %g, %g)\n", flat_placement_info.blx_x_pos[it->first], flat_placement_info.blx_y_pos[it->first], flat_placement_info.blx_layer[it->first]);
+            // auto cur_blk_loc = flat_placement_info.get_pos(it->first);
+            // FIXME: Using just the first atom block id for now. Update to get entire centroid of molecule
+            auto cur_blk_loc = flat_placement_info.get_pos(prepacker.get_molecule(it->first).atom_block_ids[0]);
+            VTR_LOGV(packer_opts->pack_verbosity >= 3, "Molecule %zu is in partition %d ", it->first, it->second);
+            VTR_LOGV(packer_opts->pack_verbosity >= 3, "With location (%g, %g, %g)\n", cur_blk_loc.x, cur_blk_loc.y, cur_blk_loc.layer);
         }
     }
     else if (true){ // Otherwise, do Hmetis graph partitioning
@@ -752,7 +758,7 @@ static float approximate_inter_cluster_delay(const t_arch& arch,
 }
 
 std::unordered_map<PackMoleculeId, int> partition_flat_placed_mols(const FlatPlacementInfo& flat_placement_info,
-    const PrePackingContext& prepacker,
+    const Prepacker& prepacker,
     int thread_count,
     const t_flat_pl_loc& min_coords,
     const t_flat_pl_loc& max_coords,
@@ -794,7 +800,7 @@ std::unordered_map<PackMoleculeId, int> partition_flat_placed_mols(const FlatPla
             num_partitions_y = 4;
             break;
         default:
-            VTR_LOGF_ERROR(VPR_ERROR_PACK, "Unsupported number of partitions: %d\n", num_partitions);
+            VPR_FATAL_ERROR(VPR_ERROR_PACK, "Unsupported number of partitions: %d\n", num_partitions);
     }
 
 
@@ -802,22 +808,25 @@ std::unordered_map<PackMoleculeId, int> partition_flat_placed_mols(const FlatPla
     // TODO: For now, number of layer paritions is hardcoded to 1
     num_partitions_layer = 1;
     int partition_size_layer = (max_coords.layer - min_coords.layer) / num_partitions_layer; 
-    // int partition_size_x = (max_coords.x - min_coords.x) / num_partitions_x;
-    // int partition_size_y = (max_coords.y - min_coords.y) / num_partitions_y;
+    int partition_size_x = (max_coords.x - min_coords.x) / num_partitions_x;
+    int partition_size_y = (max_coords.y - min_coords.y) / num_partitions_y;
     VTR_LOG("Partition size: (%d, %d, %d)\n", partition_size_x, partition_size_y, partition_size_layer);
 
     // Combine partitions until the total number of partitions is equal to the number of threads
     // This is done by combining the x and y partitions
     // The number of partitions is the product of the number of partitions in each dimension
-    for 
+    // for 
 
 
     // Get the partition for each molecule
     for (auto mol : prepacker.molecules()) {
-        auto blk_id = flat_placement_info.blx_id[mol];
-        auto x = flat_placement_info.blx_x_pos[blk_id];
-        auto y = flat_placement_info.blx_y_pos[blk_id];
-        auto layer = flat_placement_info.blx_layer[blk_id];
+        // auto blk_id = flat_placement_info.blx_id[mol];
+        // auto cur_blk_loc = flat_placement_info.get_pos(mol);
+        auto cur_blk_loc = flat_placement_info.get_pos(prepacker.get_molecule(mol).atom_block_ids[0]);
+
+        auto x = cur_blk_loc.x;
+        auto y = cur_blk_loc.y;
+        auto layer = cur_blk_loc.layer;
 
         // Get the partition for the molecule
         int partition_x = (int)((x - min_coords.x) / partition_size_x);
@@ -832,7 +841,7 @@ std::unordered_map<PackMoleculeId, int> partition_flat_placed_mols(const FlatPla
             partition_y < 0 || partition_y >= partition_size_y ||
             partition_layer < 0 || partition_layer >= partition_size_layer ||
             partition_id < 0 || partition_id >= num_partitions) {
-            VPR_FATAL_ERROR("Partition: (%d, %d, %d) = (%d) is out of bounds: (%g, %g, %g)\n", partition_x, partition_y, partition_layer, partition_id, x, y, layer);
+            VPR_FATAL_ERROR(VPR_ERROR_PACK, "Partition: (%d, %d, %d) = (%d) is out of bounds: (%g, %g, %g)\n", partition_x, partition_y, partition_layer, partition_id, x, y, layer);
         }
 
         partition_map[mol] = partition_id;

@@ -323,9 +323,20 @@ bool try_pack(t_packer_opts* packer_opts,
         }
     }
 
+    // Re-partition all memory blocks into their own partition
+    for (auto blk : atom_ctx.netlist().blocks()) {
+        bool found_mem = std::string_view(atom_ctx.netlist().block_model(blk)->name).find("mem") != std::string_view::npos;
+        bool found_ram = std::string_view(atom_ctx.netlist().block_model(blk)->name).find("ram") != std::string_view::npos;
+
+        if (found_mem || found_ram){
+            partition_map[prepacker.get_atom_molecule(blk)] = thread_count;
+        }
+    }
+
     std::vector<std::unique_ptr<ClusterLegalizer>> cluster_legalizers;
     std::vector<std::unique_ptr<GreedyClusterer>> clusterers;
-    for(int i = 0; i < thread_count; i++) {
+    
+    for(int i = 0; i < thread_count + 1; i++) {
         cluster_legalizers.push_back(std::make_unique<ClusterLegalizer>(atom_ctx.netlist(),
         prepacker,
         lb_type_rr_graphs,
@@ -354,9 +365,8 @@ bool try_pack(t_packer_opts* packer_opts,
 
 
     g_vpr_ctx.mutable_atom().mutable_lookup().set_atom_pb_bimap_lock(true);
-    #pragma omp parallel num_threads(thread_count)
-    {
-        int i = omp_get_thread_num();
+    #pragma omp parallel for num_threads(thread_count)
+    for (int i = 0; i < cluster_legalizers.size(); i++) {
         bool allow_unrelated_clustering = false;
         if (packer_opts->allow_unrelated_clustering == e_unrelated_clustering::ON) {
             allow_unrelated_clustering = true;

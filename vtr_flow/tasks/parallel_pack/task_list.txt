@@ -3,6 +3,6 @@ parallel_pack/vtr_chain_largest_2t
 parallel_pack/vtr_chain_largest_4t
 # parallel_pack/vtr_chain_largest_8t
 # parallel_pack/vtr_chain_largest_16t
-parallel_pack/titan_1t
-parallel_pack/titan_2t
-parallel_pack/titan_4t
+#parallel_pack/titan_1t
+#parallel_pack/titan_2t
+#parallel_pack/titan_4t

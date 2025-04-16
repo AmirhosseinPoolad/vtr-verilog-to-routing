@@ -20,7 +20,7 @@
 #include "vpr_types.h"
 #include "vtr_assert.h"
 #include "vtr_log.h"
-
+#include "vtr_time.h"
 #include <iostream>
 #include <fstream>
 
@@ -255,6 +255,7 @@ bool try_pack(t_packer_opts* packer_opts,
         }
     }
     else if (true){ // Otherwise, do Hmetis graph partitioning
+        vtr::ScopedStartFinishTimer timer("Netlist partitioning");
         std::vector<AtomBlockId> block_ids;
         std::vector<PackMoleculeId> molecule_ids;
         // Create graph of molecules

@@ -318,6 +318,14 @@ bool try_pack(t_packer_opts* packer_opts,
         {
             partition_id = std::stoi(line);
             partition_map[PackMoleculeId(count_molecules)] = partition_id;
+            AtomBlockId blk = prepacker.get_molecule_root_atom(PackMoleculeId(count_molecules));
+            if(blk != AtomBlockId::INVALID()) {
+                bool found_mem = std::string_view(atom_ctx.netlist().block_model(blk)->name).find("mem") != std::string_view::npos;
+                bool found_ram = std::string_view(atom_ctx.netlist().block_model(blk)->name).find("ram") != std::string_view::npos;
+                if (found_mem || found_ram){
+                    partition_map[PackMoleculeId(count_molecules)] = thread_count;
+                }
+            }
             count_molecules ++;
         }
     }
@@ -328,14 +336,23 @@ bool try_pack(t_packer_opts* packer_opts,
         }
     }
 
-    // Re-partition all memory blocks into their own partition
-    for (auto blk : atom_ctx.netlist().blocks()) {
-        bool found_mem = std::string_view(atom_ctx.netlist().block_model(blk)->name).find("mem") != std::string_view::npos;
-        bool found_ram = std::string_view(atom_ctx.netlist().block_model(blk)->name).find("ram") != std::string_view::npos;
+    // Re-partition all memory blocks into their own partition for AP
+    // TODO: do this in a better way, this basically adds one entire O(n) stage
+    if (flat_placement_info.valid) {
+        for (auto blk : atom_ctx.netlist().blocks()) {
+            bool found_mem = std::string_view(atom_ctx.netlist().block_model(blk)->name).find("mem") != std::string_view::npos;
+            bool found_ram = std::string_view(atom_ctx.netlist().block_model(blk)->name).find("ram") != std::string_view::npos;
 
-        if (found_mem || found_ram){
-            partition_map[prepacker.get_atom_molecule(blk)] = thread_count;
+            if (found_mem || found_ram){
+                partition_map[prepacker.get_atom_molecule(blk)] = thread_count;
+            }
         }
+    }
+
+    // Verify one to one partition map
+    for(auto mol : prepacker.molecules()){
+        VTR_ASSERT(partition_map.contains(mol));
+        VTR_ASSERT(partition_map[mol] >= 0 && partition_map[mol] <= thread_count);
     }
 
     std::vector<std::unique_ptr<ClusterLegalizer>> cluster_legalizers;

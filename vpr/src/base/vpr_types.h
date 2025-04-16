@@ -738,6 +738,7 @@ struct t_packer_opts {
     std::string pack_move_type;
     bool load_flat_placement;
     int num_threads;
+    bool weighted_partitioning;
 };
 
 /**

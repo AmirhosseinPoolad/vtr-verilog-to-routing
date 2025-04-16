@@ -591,6 +591,7 @@ void SetupPackerOpts(const t_options& Options,
     PackerOpts->use_attraction_groups = Options.use_attraction_groups;
 
     PackerOpts->num_threads = Options.pack_num_threads;
+    PackerOpts->weighted_partitioning = Options.weighted_partitioning;
 
     //TODO: document?
     PackerOpts->inter_cluster_net_delay = 1.0; /* DEFAULT */

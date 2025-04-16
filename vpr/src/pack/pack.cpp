@@ -29,7 +29,52 @@
 #include <mtkahypar.h>
 #include <flat_placement_utils.h>
 
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
 // static constexpr int thread_count = 2;
+static void do_partitioning(int thread_count) {
+    mt_kahypar_error_t error{};
+    // Initialize MT-KaHyPar
+    mt_kahypar_initialize(1, true);
+    mt_kahypar_context_t* context = mt_kahypar_context_from_preset(DEFAULT);
+    mt_kahypar_set_partitioning_parameters(context, thread_count, 0.03, KM1);
+    mt_kahypar_set_seed(42);
+    mt_kahypar_status_t status = mt_kahypar_set_context_parameter(context, VERBOSE, "1", &error);
+    VTR_ASSERT(status == SUCCESS);
+
+    mt_kahypar_hypergraph_t hypergraph = mt_kahypar_read_hypergraph_from_file("graph_traverse.txt", context, HMETIS, &error);
+    if (error.status != SUCCESS || hypergraph.hypergraph == nullptr) {
+        std::cerr << error.msg << std::endl;
+        std::exit(1);
+    }
+
+    mt_kahypar_partitioned_hypergraph_t partitioned_hg = mt_kahypar_partition(hypergraph, context, &error);
+    if (partitioned_hg.partitioned_hg == nullptr) {
+        std::cerr << error.msg << std::endl;
+        std::exit(1);
+    }
+
+    auto partition = std::make_unique<mt_kahypar_partition_id_t[]>(mt_kahypar_num_hypernodes(hypergraph));
+    mt_kahypar_get_partition(partitioned_hg, partition.get());
+
+    auto block_weights = std::make_unique<mt_kahypar_hypernode_weight_t[]>(2);
+    mt_kahypar_get_block_weights(partitioned_hg, block_weights.get());
+
+    const double imbalance = mt_kahypar_imbalance(partitioned_hg, context);
+    const int km1 = mt_kahypar_km1(partitioned_hg);
+    mt_kahypar_write_partition_to_file(partitioned_hg, "partitioned_graph.txt", &error);
+
+    std::cout << "Partitioning Results:" << std::endl;
+    std::cout << "Imbalance         = " << imbalance << std::endl;
+    std::cout << "Km1               = " << km1 << std::endl;
+    std::cout << "Weight of Block 0 = " << block_weights[0] << std::endl;
+    std::cout << "Weight of Block 1 = " << block_weights[1] << std::endl;
+
+    mt_kahypar_free_context(context);
+    mt_kahypar_free_hypergraph(hypergraph);
+    mt_kahypar_free_partitioned_hypergraph(partitioned_hg);
+}
 
 static bool try_size_device_grid(const t_arch& arch,
                                  const std::map<t_logical_block_type_ptr, size_t>& num_type_instances,
@@ -245,60 +290,20 @@ bool try_pack(t_packer_opts* packer_opts,
             std::cerr << "Error opening file: " << std::strerror(errno) << std::endl;
         }   
         // Start partitioning
-        mt_kahypar_error_t error{};
-        // Initialize
-        mt_kahypar_initialize(1,
-        //std::thread::hardware_concurrency() /* use all available cores */,
-        true /* activate interleaved NUMA allocation policy */ );
-        // Setup partitioning context
-        mt_kahypar_context_t* context = mt_kahypar_context_from_preset(DEFAULT);
-        // In the following, we partition a hypergraph into two blocks
-        // with an allowed imbalance of 3% and optimize the connective metric (KM1)
-        mt_kahypar_set_partitioning_parameters(context,
-        thread_count /* number of blocks */, 0.03 /* imbalance parameter */,
-        KM1 /* objective function */);
-        mt_kahypar_set_seed(42 /* seed */);
-        // Enable logging
-        mt_kahypar_status_t status =
-        mt_kahypar_set_context_parameter(context, VERBOSE, "1", &error);
-        VTR_ASSERT(status == SUCCESS);
-        // Load Hypergraph for DEFAULT preset
-        mt_kahypar_hypergraph_t hypergraph =
-        mt_kahypar_read_hypergraph_from_file("graph_traverse.txt",
-            context, HMETIS /* file format */, &error);
-        if (error.status != SUCCESS){
-            std::cout << error.msg << std::endl; std::exit(1);
-        }
-        if (hypergraph.hypergraph == nullptr) {
-        std::cout << error.msg << std::endl; std::exit(1);
-        }
-        // Partition Hypergraph
-        mt_kahypar_partitioned_hypergraph_t partitioned_hg =
-        mt_kahypar_partition(hypergraph, context, &error);
-        if (partitioned_hg.partitioned_hg == nullptr) {
-            std::cout << error.msg << std::endl; std::exit(1);
-        }
-        // Extract Partition
-        auto partition = std::make_unique<mt_kahypar_partition_id_t[]>(
-        mt_kahypar_num_hypernodes(hypergraph));
-        mt_kahypar_get_partition(partitioned_hg, partition.get());
-        // Extract Block Weights
-        auto block_weights = std::make_unique<mt_kahypar_hypernode_weight_t[]>(2);
-        mt_kahypar_get_block_weights(partitioned_hg, block_weights.get());
-        // Compute Metrics
-        const double imbalance = mt_kahypar_imbalance(partitioned_hg, context);
-        const int km1 = mt_kahypar_km1(partitioned_hg);
-        mt_kahypar_write_partition_to_file(partitioned_hg, "partitioned_graph.txt", &error);
-        // Output Results
-        std::cout << "Partitioning Results:" << std::endl;
-        std::cout << "Imbalance         = " << imbalance << std::endl;
-        std::cout << "Km1               = " << km1 << std::endl;
-        std::cout << "Weight of Block 0 = " << block_weights[0] << std::endl;
-        std::cout << "Weight of Block 1 = " << block_weights[1] << std::endl;
-        mt_kahypar_free_context(context);
-        mt_kahypar_free_hypergraph(hypergraph);
-        mt_kahypar_free_partitioned_hypergraph(partitioned_hg);
-
+        pid_t pid = fork();
+        if (pid < 0) {
+            perror("fork failed");
+            exit(1);
+        } else if (pid == 0) {
+            // In the child process: run partitioning code on its own heap
+            do_partitioning(thread_count);
+            exit(0);  // Ensure the child process terminates cleanly
+        } else {
+            // In the parent process: wait for the partitioning process to complete
+            int status;
+            waitpid(pid, &status, 0);
+            // Now the parent can read the results (for example, reading "partitioned_graph.txt")
+        }        
         // End of partitioning
 
         std::ifstream partitioned_graph_file("partitioned_graph.txt");

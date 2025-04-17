@@ -807,9 +807,10 @@ std::unordered_map<PackMoleculeId, int> partition_flat_placed_mols(const FlatPla
     // Not that many layers, should be able to just use the number of layers as the partition size
     // TODO: For now, number of layer paritions is hardcoded to 1
     num_partitions_layer = 1;
-    int partition_size_layer = (max_coords.layer - min_coords.layer) / num_partitions_layer; 
-    int partition_size_x = (max_coords.x - min_coords.x) / num_partitions_x;
-    int partition_size_y = (max_coords.y - min_coords.y) / num_partitions_y;
+    int partition_size_layer = 1; //(max_coords.layer - min_coords.layer) / num_partitions_layer; 
+    // Increase max coords by 1% to make max_coord block be num_partitions_xy-1.
+    double partition_size_x = (max_coords.x - min_coords.x) / num_partitions_x;
+    double partition_size_y = (max_coords.y - min_coords.y) / num_partitions_y;
     VTR_LOG("Partition size: (%d, %d, %d)\n", partition_size_x, partition_size_y, partition_size_layer);
 
     // Combine partitions until the total number of partitions is equal to the number of threads
@@ -831,17 +832,21 @@ std::unordered_map<PackMoleculeId, int> partition_flat_placed_mols(const FlatPla
         // Get the partition for the molecule
         int partition_x = (int)((x - min_coords.x) / partition_size_x);
         int partition_y = (int)((y - min_coords.y) / partition_size_y);
-        int partition_layer = (int)((layer - min_coords.layer) / partition_size_layer);
+        partition_x = partition_x == num_partitions_x ? partition_x - 1 : partition_x; //
+        partition_y = partition_y == num_partitions_y ? partition_y - 1 : partition_y;
+
+        // TODO:Always 1 layer for now
+        int partition_layer = 0;// (int)((layer - min_coords.layer) / partition_size_layer);
 
         // Assign the molecule to the partition
-        int partition_id = partition_x + partition_y * partition_size_x + partition_layer * partition_size_x * partition_size_y;
+        int partition_id = partition_x + (partition_y * num_partitions_x); // + partition_layer * num_partitions_x * num_partitions_y;
 
         // Check if the partition is valid. This should never happen
-        if (partition_x < 0 || partition_x >= partition_size_x ||
-            partition_y < 0 || partition_y >= partition_size_y ||
-            partition_layer < 0 || partition_layer >= partition_size_layer ||
+        if (partition_x < 0 || partition_x >= num_partitions_x ||
+            partition_y < 0 || partition_y >= num_partitions_y ||
+            partition_layer < 0 || partition_layer >= num_partitions_layer ||
             partition_id < 0 || partition_id >= num_partitions) {
-            VPR_FATAL_ERROR(VPR_ERROR_PACK, "Partition: (%d, %d, %d) = (%d) is out of bounds: (%g, %g, %g)\n", partition_x, partition_y, partition_layer, partition_id, x, y, layer);
+            VPR_FATAL_ERROR(VPR_ERROR_PACK, "Partition: (%d, %d, %d) = (%d) is out of bounds: max partitions(%d, %d, %d) = (%d)\n", partition_x, partition_y, partition_layer, partition_id, num_partitions_x, num_partitions_y, num_partitions_layer, num_partitions);
         }
 
         partition_map[mol] = partition_id;

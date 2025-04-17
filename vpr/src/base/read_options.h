@@ -97,10 +97,12 @@ struct t_options {
     argparse::ArgValue<int> netlist_verbosity;
 
     /* Analytical Placement options */
-    argparse::ArgValue<e_ap_global_placer> ap_global_placer;
+    argparse::ArgValue<e_ap_analytical_solver> ap_analytical_solver;
+    argparse::ArgValue<e_ap_partial_legalizer> ap_partial_legalizer;
     argparse::ArgValue<e_ap_full_legalizer> ap_full_legalizer;
     argparse::ArgValue<e_ap_detailed_placer> ap_detailed_placer;
     argparse::ArgValue<int> ap_verbosity;
+    argparse::ArgValue<float> ap_timing_tradeoff;
 
     /* Clustering options */
     argparse::ArgValue<bool> connection_driven_clustering;
@@ -121,6 +123,7 @@ struct t_options {
     argparse::ArgValue<int> pack_num_moves;
     argparse::ArgValue<std::string> pack_move_type;
     argparse::ArgValue<int> pack_num_threads;
+    argparse::ArgValue<bool> weighted_partitioning;
 
     /* Placement options */
     argparse::ArgValue<int> Seed;
@@ -158,6 +161,7 @@ struct t_options {
     argparse::ArgValue<bool> place_constraint_subtile;
     argparse::ArgValue<int> floorplan_num_horizontal_partitions;
     argparse::ArgValue<int> floorplan_num_vertical_partitions;
+    argparse::ArgValue<bool> place_quench_only;
 
     argparse::ArgValue<int> placer_debug_block;
     argparse::ArgValue<int> placer_debug_net;

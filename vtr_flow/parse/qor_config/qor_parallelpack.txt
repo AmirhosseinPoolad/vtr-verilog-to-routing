@@ -1,0 +1,6 @@
+vpr_status;output.txt;vpr_status=(.*)
+total_runtime;vpr.out;The entire flow of VPR took (.*) seconds
+partition_time;vpr.out;Netlist partitioning took (.*) seconds
+%include "../parse_config/timing/vpr.pack.txt"
+crit_path_delay;vpr.out;Final critical path delay \(least slack\): (.*) ns
+total_wirelength;vpr.out;\s*Total wirelength:\s*(\d+)

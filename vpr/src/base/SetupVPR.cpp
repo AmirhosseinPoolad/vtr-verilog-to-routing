@@ -547,9 +547,11 @@ static void SetupAnnealSched(const t_options& Options,
  */
 void SetupAPOpts(const t_options& options,
                  t_ap_opts& apOpts) {
-    apOpts.global_placer_type = options.ap_global_placer.value();
+    apOpts.analytical_solver_type = options.ap_analytical_solver.value();
+    apOpts.partial_legalizer_type = options.ap_partial_legalizer.value();
     apOpts.full_legalizer_type = options.ap_full_legalizer.value();
     apOpts.detailed_placer_type = options.ap_detailed_placer.value();
+    apOpts.ap_timing_tradeoff = options.ap_timing_tradeoff.value();
     apOpts.log_verbosity = options.ap_verbosity.value();
 }
 
@@ -589,12 +591,8 @@ void SetupPackerOpts(const t_options& Options,
     PackerOpts->transitive_fanout_threshold = Options.pack_transitive_fanout_threshold;
     PackerOpts->feasible_block_array_size = Options.pack_feasible_block_array_size;
     PackerOpts->use_attraction_groups = Options.use_attraction_groups;
-
     PackerOpts->num_threads = Options.pack_num_threads;
-
-    //TODO: document?
-    PackerOpts->inter_cluster_net_delay = 1.0; /* DEFAULT */
-    PackerOpts->auto_compute_inter_cluster_net_delay = true;
+    PackerOpts->weighted_partitioning = Options.weighted_partitioning;
 
     PackerOpts->device_layout = Options.device_layout;
 
@@ -694,6 +692,7 @@ static void SetupPlacerOpts(const t_options& Options, t_placer_opts* PlacerOpts)
     PlacerOpts->place_constraint_subtile = Options.place_constraint_subtile;
     PlacerOpts->floorplan_num_horizontal_partitions = Options.floorplan_num_horizontal_partitions;
     PlacerOpts->floorplan_num_vertical_partitions = Options.floorplan_num_vertical_partitions;
+    PlacerOpts->place_quench_only = Options.place_quench_only;
 
     PlacerOpts->seed = Options.Seed;
 

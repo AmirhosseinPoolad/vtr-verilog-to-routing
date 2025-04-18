@@ -725,7 +725,7 @@ std::unordered_map<PackMoleculeId, int> partition_flat_placed_mols(const FlatPla
     // Increase max coords by 1% to make max_coord block be num_partitions_xy-1.
     double partition_size_x = (max_coords.x - min_coords.x) / num_partitions_x;
     double partition_size_y = (max_coords.y - min_coords.y) / num_partitions_y;
-    VTR_LOG("Partition size: (%d, %d, %d)\n", partition_size_x, partition_size_y, partition_size_layer);
+    VTR_LOG("Partition size: (%lf, %lf, %d)\n", partition_size_x, partition_size_y, partition_size_layer);
 
     // Combine partitions until the total number of partitions is equal to the number of threads
     // This is done by combining the x and y partitions
@@ -749,6 +749,15 @@ std::unordered_map<PackMoleculeId, int> partition_flat_placed_mols(const FlatPla
         partition_x = partition_x == num_partitions_x ? partition_x - 1 : partition_x; //
         partition_y = partition_y == num_partitions_y ? partition_y - 1 : partition_y;
 
+        // Move blocks close to the right border of partition to the next partiton
+        // TODO: only works when mem/dsp/etc are arranged in columns. find a better solution
+        constexpr int border_threshold = 1;
+        if (partition_x != num_partitions_x - 1) {
+            if (std::abs(x - (partition_size_x * (partition_x + 1) + min_coords.x)) <= border_threshold) {
+                partition_x++;
+            }
+        }
+
         // TODO:Always 1 layer for now
         int partition_layer = 0;// (int)((layer - min_coords.layer) / partition_size_layer);
 
@@ -762,7 +771,7 @@ std::unordered_map<PackMoleculeId, int> partition_flat_placed_mols(const FlatPla
             partition_id < 0 || partition_id >= num_partitions) {
             VPR_FATAL_ERROR(VPR_ERROR_PACK, "Partition: (%d, %d, %d) = (%d) is out of bounds: max partitions(%d, %d, %d) = (%d)\n", partition_x, partition_y, partition_layer, partition_id, num_partitions_x, num_partitions_y, num_partitions_layer, num_partitions);
         }
-
+        //VTR_LOG("(%f, %f) = (%d)\n", x, y, partition_id);
         partition_map[mol] = partition_id;
     }
     return partition_map;

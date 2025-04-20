@@ -272,7 +272,7 @@ bool try_pack(const t_packer_opts& packer_opts,
                         inter_molecule_hyperedges++;
                         auto hyperedge_weight = compute_mean_distance(block_positions);
                         // VTR_LOG("Weight is %f\n", hyperedge_weight);
-                        graph_traverse_file << (int) (10000*hyperedge_weight);
+                        graph_traverse_file << (INT_MAX -  (10000*hyperedge_weight));
                         block_positions.clear();   
                         for (auto target_molecule_id : molecule_ids){                          
                             graph_traverse_file << " ";                    

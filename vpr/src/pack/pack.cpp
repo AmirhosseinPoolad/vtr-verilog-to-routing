@@ -82,7 +82,7 @@ static void do_partitioning(int thread_count) {
     mt_kahypar_free_partitioned_hypergraph(partitioned_hg);
 }
 
-static float compute_mean_distance(const std::unordered_map<AtomBlockId, std::pair<float, float>>& block_positions) {
+static float compute_mean_distance(const std::unordered_map<PackMoleculeId, std::pair<float, float>>& block_positions) {
     float total_distance = 0.0f;
     int count = 0;
 
@@ -245,8 +245,9 @@ bool try_pack(const t_packer_opts& packer_opts,
     else if (true){ // Otherwise, do Hmetis graph partitioning
         std::vector<AtomBlockId> block_ids;
         std::vector<PackMoleculeId> molecule_ids;
-        std::unordered_map<AtomBlockId, std::pair<float, float>> block_positions;
+        std::unordered_map<PackMoleculeId, std::pair<float, float>> block_positions;
         int inter_molecule_hyperedges = 0;
+        float device_diameter_size = std::sqrt(device_ctx.grid.width() * device_ctx.grid.width() + device_ctx.grid.height() * device_ctx.grid.height());
         // Create graph of molecules
         bool put_space = false;
         if (graph_traverse_file.is_open()){
@@ -259,8 +260,12 @@ bool try_pack(const t_packer_opts& packer_opts,
                     auto it = std::find(molecule_ids.begin(), molecule_ids.end(), target_molecule_id);
                     if (it == molecule_ids.end()){
                         if (packer_opts.weighted_partitioning){
-                            auto [block_x, block_y, block_layer] = flat_placement_info.get_pos(block_id);
-                            block_positions[block_id] = {block_x, block_y};
+                            if (block_positions.find(target_molecule_id) == block_positions.end()){
+                                auto molecule_root_block_id = prepacker.get_molecule_root_atom(target_molecule_id);
+                                // Get the position of the root block in this molecule
+                                auto [block_x, block_y, block_layer] = flat_placement_info.get_pos(molecule_root_block_id);
+                                block_positions[target_molecule_id] = {block_x, block_y};
+                            }
                         }
                         molecule_ids.push_back(target_molecule_id);
                     }
@@ -271,9 +276,7 @@ bool try_pack(const t_packer_opts& packer_opts,
                     if (packer_opts.weighted_partitioning){
                         inter_molecule_hyperedges++;
                         auto hyperedge_weight = compute_mean_distance(block_positions);
-                        // VTR_LOG("Weight is %f\n", hyperedge_weight);
-                        graph_traverse_file << (INT_MAX -  (10000*hyperedge_weight));
-                        block_positions.clear();   
+                        graph_traverse_file << (int)(10000*(device_diameter_size  - hyperedge_weight));
                         for (auto target_molecule_id : molecule_ids){                          
                             graph_traverse_file << " ";                    
                             graph_traverse_file << ((int)target_molecule_id + 1);
@@ -294,7 +297,7 @@ bool try_pack(const t_packer_opts& packer_opts,
                 if (!packer_opts.weighted_partitioning){
                     graph_traverse_file << "\n";
                 }
-                
+                block_positions.clear();       
             }
             graph_traverse_file.close();
             if (packer_opts.weighted_partitioning){

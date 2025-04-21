@@ -1343,6 +1343,9 @@ PackMoleculeId GreedyCandidateSelector::get_unrelated_candidate_for_cluster_appa
                 // If this molecule has been clustered, skip it.
                 if (cluster_legalizer.is_mol_clustered(mol_id))
                     continue;
+
+                if (!cluster_legalizer.is_cluster_in_partition(mol_id))
+                    continue;
                 // If this molecule has tried to be packed before and failed
                 // do not try it. This also means that this molecule may be
                 // related to this cluster in some way.

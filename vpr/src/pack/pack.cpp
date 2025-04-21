@@ -351,10 +351,8 @@ bool try_pack(const t_packer_opts& packer_opts,
             partition_map[PackMoleculeId(count_molecules)] = partition_id;
             AtomBlockId blk = prepacker.get_molecule_root_atom(PackMoleculeId(count_molecules));
             if(blk != AtomBlockId::INVALID()) {
-                bool found_mem = std::string_view(atom_ctx.netlist().block_model(blk)->name).find("mem") != std::string_view::npos;
-                bool found_ram = std::string_view(atom_ctx.netlist().block_model(blk)->name).find("ram") != std::string_view::npos;
-                if (found_mem || found_ram){
-                    partition_map[PackMoleculeId(count_molecules)] = thread_count;
+                if (prepacker.get_expected_lowest_cost_pb_gnode(blk)->pb_type->class_type == MEMORY_CLASS) {
+                    partition_map[PackMoleculeId(count_molecules)] = 0;
                 }
             }
             count_molecules ++;
@@ -371,11 +369,8 @@ bool try_pack(const t_packer_opts& packer_opts,
     // TODO: do this in a better way, this basically adds one entire O(n) stage
     if (flat_placement_info.valid) {
         for (auto blk : atom_ctx.netlist().blocks()) {
-            bool found_mem = std::string_view(atom_ctx.netlist().block_model(blk)->name).find("mem") != std::string_view::npos;
-            bool found_ram = std::string_view(atom_ctx.netlist().block_model(blk)->name).find("ram") != std::string_view::npos;
-
-            if (found_mem || found_ram){
-                partition_map[prepacker.get_atom_molecule(blk)] = thread_count;
+            if (prepacker.get_expected_lowest_cost_pb_gnode(blk)->pb_type->class_type == MEMORY_CLASS) {
+                partition_map[prepacker.get_atom_molecule(blk)] = 0;
             }
         }
     }
@@ -389,7 +384,7 @@ bool try_pack(const t_packer_opts& packer_opts,
     std::vector<std::unique_ptr<ClusterLegalizer>> cluster_legalizers;
     std::vector<std::unique_ptr<GreedyClusterer>> clusterers;
     
-    for(int i = 0; i < thread_count + 1; i++) {
+    for(int i = 0; i < thread_count; i++) {
         cluster_legalizers.push_back(std::make_unique<ClusterLegalizer>(atom_ctx.netlist(),
         prepacker,
         lb_type_rr_graphs,
@@ -752,15 +747,14 @@ std::unordered_map<PackMoleculeId, int> partition_flat_placed_mols(const FlatPla
         partition_x = partition_x == num_partitions_x ? partition_x - 1 : partition_x; //
         partition_y = partition_y == num_partitions_y ? partition_y - 1 : partition_y;
 
-        // Move blocks close to the right border of partition to the next partiton
-        // TODO: only works when mem/dsp/etc are arranged in columns. find a better solution
-        constexpr int border_threshold = 1;
-        if (partition_x != num_partitions_x - 1) {
-            if (std::abs(x - (partition_size_x * (partition_x + 1) + min_coords.x)) <= border_threshold) {
-                partition_x++;
-            }
-        }
-
+        // // Move blocks close to the right border of partition to the next partiton
+        // // TODO: only works when mem/dsp/etc are arranged in columns. find a better solution
+        // constexpr int border_threshold = 1;
+        // if (partition_x != num_partitions_x - 1) {
+        //     if (std::abs(x - (partition_size_x * (partition_x + 1) + min_coords.x)) <= border_threshold) {
+        //         partition_x++;
+        //     }
+        // }
         // TODO:Always 1 layer for now
         int partition_layer = 0;// (int)((layer - min_coords.layer) / partition_size_layer);
 

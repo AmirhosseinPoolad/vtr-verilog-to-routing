@@ -44,7 +44,7 @@ static void do_partitioning(int thread_count) {
     // Initialize MT-KaHyPar
     mt_kahypar_initialize(1, true);
     mt_kahypar_context_t* context = mt_kahypar_context_from_preset(DEFAULT);
-    mt_kahypar_set_partitioning_parameters(context, thread_count, 0.03, KM1);
+    mt_kahypar_set_partitioning_parameters(context, thread_count, 0.03, CUT);
     mt_kahypar_set_seed(42);
     mt_kahypar_status_t status = mt_kahypar_set_context_parameter(context, VERBOSE, "1", &error);
     VTR_ASSERT(status == SUCCESS);

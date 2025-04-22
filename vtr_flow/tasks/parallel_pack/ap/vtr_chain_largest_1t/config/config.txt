@@ -95,4 +95,4 @@ pass_requirements_file=pass_requirements.txt
 #       With AP
 # script_params=-no_second_run -track_memory_usage -crit_path_router_iterations 100 --analytical_place --route
 #       Without AP
-script_params=-no_second_run -track_memory_usage --analytical_place --route --pack_num_threads 1
+script_params=-no_second_run -track_memory_usage --analytical_place --route

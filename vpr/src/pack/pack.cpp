@@ -33,18 +33,21 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
-// static constexpr int thread_count = 2;
 
-struct Position {
-    float x;
-    float y;
-};
-static void do_partitioning(int thread_count) {
+static std::pair<int, int> get_closest_factors(int num) {
+    int sqrt = std::sqrt(num);
+    while (num % sqrt != 0) {
+        sqrt--;
+    }
+    return std::make_pair(sqrt, num/sqrt);
+}
+
+static void do_graph_partitioning(int num_partitions) {
     mt_kahypar_error_t error{};
     // Initialize MT-KaHyPar
     mt_kahypar_initialize(1, true);
     mt_kahypar_context_t* context = mt_kahypar_context_from_preset(DEFAULT);
-    mt_kahypar_set_partitioning_parameters(context, thread_count, 0.03, CUT);
+    mt_kahypar_set_partitioning_parameters(context, num_partitions, 0.05, CUT);
     mt_kahypar_set_seed(42);
     mt_kahypar_status_t status = mt_kahypar_set_context_parameter(context, VERBOSE, "1", &error);
     VTR_ASSERT(status == SUCCESS);
@@ -101,8 +104,67 @@ static float compute_mean_distance(const std::unordered_map<PackMoleculeId, std:
 
     return (count > 0) ? (total_distance / count) : 0.0f;
 }
-                                            
 
+static std::unordered_map<PackMoleculeId, int> do_spatial_partitioning(const FlatPlacementInfo& flat_placement_info,
+    const Prepacker& prepacker,
+    int num_partitions,
+    const t_flat_pl_loc& min_coords,
+    const t_flat_pl_loc& max_coords) {
+    /* This function partitions the region into smaller rectangles and assigns each molecule to a partition.
+     * The partition is determined by the location of the molecule in the region. */
+
+    std::unordered_map<PackMoleculeId, int> partition_map;
+    
+    // Get the number of partitions
+    // Can work for thread_count of 1, 2, 4, 8, 16.
+    int num_partitions_x, num_partitions_y, num_partitions_layer = 0;
+
+    if (num_partitions == 1) {
+        // No need to partition, just return 0
+        for (auto mol : prepacker.molecules()) {
+            partition_map[mol] = 0;
+        }
+        return partition_map; 
+    }
+
+    auto axis_partitions = get_closest_factors(num_partitions);
+
+    num_partitions_x = axis_partitions.first;
+    num_partitions_y = axis_partitions.second;
+    num_partitions_layer = 1;
+    
+    double partition_size_x = (max_coords.x - min_coords.x) / num_partitions_x;
+    double partition_size_y = (max_coords.y - min_coords.y) / num_partitions_y;
+    int partition_size_layer = 1;
+    VTR_LOG("Partition size: (%lf, %lf, %d)\n", partition_size_x, partition_size_y, partition_size_layer);
+
+    // Get the partition for each molecule
+    for (auto mol : prepacker.molecules()) {
+        auto cur_blk_loc = flat_placement_info.get_pos(prepacker.get_molecule(mol).atom_block_ids[0]);
+
+        auto x = cur_blk_loc.x;
+        auto y = cur_blk_loc.y;
+
+        int partition_x = (int)((x - min_coords.x) / partition_size_x);
+        int partition_y = (int)((y - min_coords.y) / partition_size_y);
+        partition_x = partition_x == num_partitions_x ? partition_x - 1 : partition_x;
+        partition_y = partition_y == num_partitions_y ? partition_y - 1 : partition_y;
+
+        int partition_layer = 0;
+
+        int partition_id = partition_x + (partition_y * num_partitions_x);
+
+        // Check if the partition is valid. This should never happen
+        if (partition_x < 0 || partition_x >= num_partitions_x ||
+            partition_y < 0 || partition_y >= num_partitions_y ||
+            partition_layer < 0 || partition_layer >= num_partitions_layer ||
+            partition_id < 0 || partition_id >= num_partitions) {
+            VPR_FATAL_ERROR(VPR_ERROR_PACK, "Partition: (%d, %d, %d) = (%d) is out of bounds: max partitions(%d, %d, %d) = (%d)\n", partition_x, partition_y, partition_layer, partition_id, num_partitions_x, num_partitions_y, num_partitions_layer, num_partitions);
+        }
+        partition_map[mol] = partition_id;
+    }
+    return partition_map;
+}
 
 static bool try_size_device_grid(const t_arch& arch,
                                  const std::map<t_logical_block_type_ptr, size_t>& num_type_instances,
@@ -158,7 +220,6 @@ bool try_pack(const t_packer_opts& packer_opts,
 
     t_flat_pl_loc min_coords({std::numeric_limits<float>::max(), std::numeric_limits<float>::max(), std::numeric_limits<float>::max()});
     t_flat_pl_loc max_coords({0.0f, 0.0f, 0.0f});
-    t_flat_pl_loc midpoint({0.0f, 0.0f, 0.0f});
 
     // Verify that the Flat Placement is valid for packing.
     if (flat_placement_info.valid) {
@@ -189,11 +250,8 @@ bool try_pack(const t_packer_opts& packer_opts,
             min_coords.layer = (cur_blk_loc.layer < min_coords.layer) ? cur_blk_loc.layer : min_coords.layer;
         }
 
-        // Get the midpoint of the flat_placement_info
-        midpoint = get_midpoint(min_coords, max_coords);
         VTR_LOG("Flat placement min coords: (%g, %g, %g)\n", min_coords.x, min_coords.y, min_coords.layer);
         VTR_LOG("Flat placement max coords: (%g, %g, %g)\n", max_coords.x, max_coords.y, max_coords.layer);
-        VTR_LOG("Flat placement midpoint coords: (%g, %g, %g)\n", midpoint.x, midpoint.y, midpoint.layer);
         VTR_LOG("Flat placement size: (%g, %g, %g)\n", max_coords.x - min_coords.x, max_coords.y - min_coords.y, max_coords.layer - min_coords.layer);
     }
 
@@ -227,12 +285,11 @@ bool try_pack(const t_packer_opts& packer_opts,
         if (flat_placement_info.valid && !packer_opts.weighted_partitioning) {
             // Get the number of partitions
             // Can work for thread_count of 1, 2, 4, 8, 16.
-            partition_map = partition_flat_placed_mols(flat_placement_info,
+            partition_map = do_spatial_partitioning(flat_placement_info,
                                                 prepacker,
-                                                thread_count,
+                                                packer_opts.num_partitions,
                                                 min_coords,
-                                                max_coords,
-                                                midpoint);
+                                                max_coords);
             // Print the partition map
             VTR_LOGV(packer_opts.pack_verbosity >= 3, "Partition map:\n");
             
@@ -311,8 +368,9 @@ bool try_pack(const t_packer_opts& packer_opts,
                     if (!content.empty() && content.back() == '\n') {
                         content.pop_back();  // remove only the last newline
                     }
-
-                    std::ofstream graph_traverse_file("graph_traverse.txt", std::ios::out);
+                    
+                    // FIXME: why is this declared here again
+                    std::ofstream graph_traverse_file2("graph_traverse.txt", std::ios::out);
                     graph_traverse_file << inter_molecule_hyperedges << " " << prepacker.molecules().size() << " " << "1" << std::endl;
                     graph_traverse_file << content;
                     graph_traverse_file.close();
@@ -329,7 +387,7 @@ bool try_pack(const t_packer_opts& packer_opts,
                 exit(1);
             } else if (pid == 0) {
                 // In the child process: run partitioning code on its own heap
-                do_partitioning(thread_count);
+                do_graph_partitioning(packer_opts.num_partitions);
                 exit(0);  // Ensure the child process terminates cleanly
             } else {
                 // In the parent process: wait for the partitioning process to complete
@@ -418,7 +476,7 @@ bool try_pack(const t_packer_opts& packer_opts,
 
     g_vpr_ctx.mutable_atom().mutable_lookup().set_atom_pb_bimap_lock(true);
     #pragma omp parallel for num_threads(thread_count)
-    for (int i = 0; i < cluster_legalizers.size(); i++) {
+    for (size_t i = 0; i < cluster_legalizers.size(); i++) {
         double stime = omp_get_wtime();
         bool allow_unrelated_clustering = false;
         if (packer_opts.allow_unrelated_clustering == e_unrelated_clustering::ON) {
@@ -673,109 +731,4 @@ static bool try_size_device_grid(const t_arch& arch,
     VTR_LOG("\n");
 
     return fits_on_device;
-}
-
-std::unordered_map<PackMoleculeId, int> partition_flat_placed_mols(const FlatPlacementInfo& flat_placement_info,
-    const Prepacker& prepacker,
-    int thread_count,
-    const t_flat_pl_loc& min_coords,
-    const t_flat_pl_loc& max_coords,
-    const t_flat_pl_loc& midpoint) {
-    /* This function partitions the region into smaller rectangles and assigns each molecule to a partition.
-     * The partition is determined by the location of the molecule in the region. */
-
-    std::unordered_map<PackMoleculeId, int> partition_map;
-    
-    // Get the number of partitions
-    // Can work for thread_count of 1, 2, 4, 8, 16.
-    int num_partitions = thread_count;
-    int num_partitions_x, num_partitions_y, num_partitions_layer = 0;//sqrt(num_partitions);
-
-    if (num_partitions == 1) {
-        // No need to partition, just return 0
-        for (auto mol : prepacker.molecules()) {
-            partition_map[mol] = 0;
-        }
-        return partition_map; 
-    }
-
-    // Hardcode thread count to partitions for now
-    switch(num_partitions) {
-        case 2:
-            num_partitions_x = 2;
-            num_partitions_y = 1;
-            break;
-        case 4:
-            num_partitions_x = 2;
-            num_partitions_y = 2;
-            break;
-        case 8:
-            num_partitions_x = 4;
-            num_partitions_y = 2;
-            break;
-        case 16:
-            num_partitions_x = 4;
-            num_partitions_y = 4;
-            break;
-        default:
-            VPR_FATAL_ERROR(VPR_ERROR_PACK, "Unsupported number of partitions: %d\n", num_partitions);
-    }
-
-
-    // Not that many layers, should be able to just use the number of layers as the partition size
-    // TODO: For now, number of layer paritions is hardcoded to 1
-    num_partitions_layer = 1;
-    int partition_size_layer = 1; //(max_coords.layer - min_coords.layer) / num_partitions_layer; 
-    // Increase max coords by 1% to make max_coord block be num_partitions_xy-1.
-    double partition_size_x = (max_coords.x - min_coords.x) / num_partitions_x;
-    double partition_size_y = (max_coords.y - min_coords.y) / num_partitions_y;
-    VTR_LOG("Partition size: (%lf, %lf, %d)\n", partition_size_x, partition_size_y, partition_size_layer);
-
-    // Combine partitions until the total number of partitions is equal to the number of threads
-    // This is done by combining the x and y partitions
-    // The number of partitions is the product of the number of partitions in each dimension
-    // for 
-
-
-    // Get the partition for each molecule
-    for (auto mol : prepacker.molecules()) {
-        // auto blk_id = flat_placement_info.blx_id[mol];
-        // auto cur_blk_loc = flat_placement_info.get_pos(mol);
-        auto cur_blk_loc = flat_placement_info.get_pos(prepacker.get_molecule(mol).atom_block_ids[0]);
-
-        auto x = cur_blk_loc.x;
-        auto y = cur_blk_loc.y;
-        auto layer = cur_blk_loc.layer;
-
-        // Get the partition for the molecule
-        int partition_x = (int)((x - min_coords.x) / partition_size_x);
-        int partition_y = (int)((y - min_coords.y) / partition_size_y);
-        partition_x = partition_x == num_partitions_x ? partition_x - 1 : partition_x; //
-        partition_y = partition_y == num_partitions_y ? partition_y - 1 : partition_y;
-
-        // // Move blocks close to the right border of partition to the next partiton
-        // // TODO: only works when mem/dsp/etc are arranged in columns. find a better solution
-        // constexpr int border_threshold = 1;
-        // if (partition_x != num_partitions_x - 1) {
-        //     if (std::abs(x - (partition_size_x * (partition_x + 1) + min_coords.x)) <= border_threshold) {
-        //         partition_x++;
-        //     }
-        // }
-        // TODO:Always 1 layer for now
-        int partition_layer = 0;// (int)((layer - min_coords.layer) / partition_size_layer);
-
-        // Assign the molecule to the partition
-        int partition_id = partition_x + (partition_y * num_partitions_x); // + partition_layer * num_partitions_x * num_partitions_y;
-
-        // Check if the partition is valid. This should never happen
-        if (partition_x < 0 || partition_x >= num_partitions_x ||
-            partition_y < 0 || partition_y >= num_partitions_y ||
-            partition_layer < 0 || partition_layer >= num_partitions_layer ||
-            partition_id < 0 || partition_id >= num_partitions) {
-            VPR_FATAL_ERROR(VPR_ERROR_PACK, "Partition: (%d, %d, %d) = (%d) is out of bounds: max partitions(%d, %d, %d) = (%d)\n", partition_x, partition_y, partition_layer, partition_id, num_partitions_x, num_partitions_y, num_partitions_layer, num_partitions);
-        }
-        //VTR_LOG("(%f, %f) = (%d)\n", x, y, partition_id);
-        partition_map[mol] = partition_id;
-    }
-    return partition_map;
 }

@@ -123,6 +123,7 @@ struct t_options {
     argparse::ArgValue<int> pack_num_moves;
     argparse::ArgValue<std::string> pack_move_type;
     argparse::ArgValue<int> pack_num_threads;
+    argparse::ArgValue<int> pack_num_partitions;
     argparse::ArgValue<bool> weighted_partitioning;
 
     /* Placement options */

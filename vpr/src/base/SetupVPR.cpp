@@ -593,6 +593,7 @@ void SetupPackerOpts(const t_options& Options,
     PackerOpts->use_attraction_groups = Options.use_attraction_groups;
     PackerOpts->num_threads = Options.pack_num_threads;
     PackerOpts->weighted_partitioning = Options.weighted_partitioning;
+    PackerOpts->num_partitions = Options.pack_num_partitions;
 
     PackerOpts->device_layout = Options.device_layout;
 

@@ -300,8 +300,7 @@ bool try_pack(const t_packer_opts& packer_opts,
                 VTR_LOGV(packer_opts.pack_verbosity >= 3, "Molecule %zu is in partition %d ", it->first, it->second);
                 VTR_LOGV(packer_opts.pack_verbosity >= 3, "With location (%g, %g, %g)\n", cur_blk_loc.x, cur_blk_loc.y, cur_blk_loc.layer);
             }
-        }
-        else if (true){ // Otherwise, do Hmetis graph partitioning
+        } else if (true) { // Otherwise, do Hmetis graph partitioning
             std::vector<AtomBlockId> block_ids;
             std::vector<PackMoleculeId> molecule_ids;
             std::unordered_map<PackMoleculeId, std::pair<float, float>> block_positions;
@@ -309,17 +308,17 @@ bool try_pack(const t_packer_opts& packer_opts,
             float device_diameter_size = std::sqrt(device_ctx.grid.width() * device_ctx.grid.width() + device_ctx.grid.height() * device_ctx.grid.height());
             // Create graph of molecules
             bool put_space = false;
-            if (graph_traverse_file.is_open()){
-                for (auto net_id : g_vpr_ctx.atom().netlist().nets()){
+            if (graph_traverse_file.is_open()) {
+                for (auto net_id : g_vpr_ctx.atom().netlist().nets()) {
                     molecule_ids.clear();
                     put_space = false;
-                    for (auto pin_id : g_vpr_ctx.atom().netlist().net_pins(net_id)){
+                    for (auto pin_id : g_vpr_ctx.atom().netlist().net_pins(net_id)) {
                         auto block_id = g_vpr_ctx.atom().netlist().pin_block(pin_id);
                         auto target_molecule_id = prepacker.get_atom_molecule(block_id);
                         auto it = std::find(molecule_ids.begin(), molecule_ids.end(), target_molecule_id);
-                        if (it == molecule_ids.end()){
-                            if (packer_opts.weighted_partitioning){
-                                if (block_positions.find(target_molecule_id) == block_positions.end()){
+                        if (it == molecule_ids.end()) {
+                            if (packer_opts.weighted_partitioning) {
+                                if (block_positions.find(target_molecule_id) == block_positions.end()) {
                                     auto molecule_root_block_id = prepacker.get_molecule_root_atom(target_molecule_id);
                                     // Get the position of the root block in this molecule
                                     auto [block_x, block_y, block_layer] = flat_placement_info.get_pos(molecule_root_block_id);
@@ -330,13 +329,12 @@ bool try_pack(const t_packer_opts& packer_opts,
                         }
                     }
 
-                    if (molecule_ids.size() > 1)
-                    {
-                        if (packer_opts.weighted_partitioning){
+                    if (molecule_ids.size() > 1) {
+                        if (packer_opts.weighted_partitioning) {
                             inter_molecule_hyperedges++;
                             auto hyperedge_weight = compute_mean_distance(block_positions);
-                            graph_traverse_file << (int)(10000*(device_diameter_size  - hyperedge_weight));
-                            for (auto target_molecule_id : molecule_ids){                          
+                            graph_traverse_file << (int)(10000 * (device_diameter_size - hyperedge_weight));
+                            for (auto target_molecule_id : molecule_ids) {
                                 graph_traverse_file << " ";                    
                                 graph_traverse_file << ((int)target_molecule_id + 1);
                                 }   
@@ -344,8 +342,8 @@ bool try_pack(const t_packer_opts& packer_opts,
                             }                         
                         
                         else {
-                            for (auto target_molecule_id : molecule_ids){
-                                if (put_space){                           
+                            for (auto target_molecule_id : molecule_ids) {
+                                if (put_space) {
                                     graph_traverse_file << " ";  
                                 }                    
                                     graph_traverse_file << ((int)target_molecule_id + 1);
@@ -353,20 +351,20 @@ bool try_pack(const t_packer_opts& packer_opts,
                                 }       
                             } 
                     }                  
-                    if (!packer_opts.weighted_partitioning){
+                    if (!packer_opts.weighted_partitioning) {
                         graph_traverse_file << "\n";
                     }
                     block_positions.clear();       
                 }
                 graph_traverse_file.close();
-                if (packer_opts.weighted_partitioning){
+                if (packer_opts.weighted_partitioning) {
                     std::ifstream in_file("graph_traverse.txt");
                     std::ostringstream buffer;
                     buffer << in_file.rdbuf();
                     in_file.close();     
                     std::string content = buffer.str();
                     if (!content.empty() && content.back() == '\n') {
-                        content.pop_back();  // remove only the last newline
+                        content.pop_back(); // remove only the last newline
                     }
                     
                     // FIXME: why is this declared here again
@@ -375,9 +373,7 @@ bool try_pack(const t_packer_opts& packer_opts,
                     graph_traverse_file << content;
                     graph_traverse_file.close();
                 }
-            }
-            else 
-            {
+            } else {
                 std::cerr << "Error opening file: " << std::strerror(errno) << std::endl;
             }   
             // Start partitioning
@@ -388,7 +384,7 @@ bool try_pack(const t_packer_opts& packer_opts,
             } else if (pid == 0) {
                 // In the child process: run partitioning code on its own heap
                 do_graph_partitioning(packer_opts.num_partitions);
-                exit(0);  // Ensure the child process terminates cleanly
+                exit(0); // Ensure the child process terminates cleanly
             } else {
                 // In the parent process: wait for the partitioning process to complete
                 int status;
@@ -405,23 +401,21 @@ bool try_pack(const t_packer_opts& packer_opts,
             }    
             int partition_id;
             size_t count_molecules = 0;
-            while (std::getline(partitioned_graph_file, line))
-            {
+            while (std::getline(partitioned_graph_file, line)) {
                 partition_id = std::stoi(line);
                 partition_map[PackMoleculeId(count_molecules)] = partition_id;
                 AtomBlockId blk = prepacker.get_molecule_root_atom(PackMoleculeId(count_molecules));
-                if(blk != AtomBlockId::INVALID()) {
+                if (blk != AtomBlockId::INVALID()) {
                     if (prepacker.get_expected_lowest_cost_pb_gnode(blk)->pb_type->class_type == MEMORY_CLASS) {
                         partition_map[PackMoleculeId(count_molecules)] = 0;
                     }
                 }
-                count_molecules ++;
+                count_molecules++;
             }
-        }
-        else { // Random Partitioning
+        } else { // Random Partitioning
             vtr::RngContainer rng(0);
-            for(auto mol : prepacker.molecules()){
-                partition_map[mol] = rng.irand(thread_count -1);
+            for (auto mol : prepacker.molecules()) {
+                partition_map[mol] = rng.irand(thread_count - 1);
             }
         }
 
@@ -436,7 +430,7 @@ bool try_pack(const t_packer_opts& packer_opts,
         }
 
         // Verify one to one partition map
-        for(auto mol : prepacker.molecules()){
+        for (auto mol : prepacker.molecules()) {
             VTR_ASSERT(partition_map.contains(mol));
             VTR_ASSERT(partition_map[mol] >= 0 && partition_map[mol] <= thread_count);
         }
@@ -445,7 +439,7 @@ bool try_pack(const t_packer_opts& packer_opts,
     std::vector<std::unique_ptr<ClusterLegalizer>> cluster_legalizers;
     std::vector<std::unique_ptr<GreedyClusterer>> clusterers;
     
-    for(int i = 0; i < thread_count; i++) {
+    for (int i = 0; i < thread_count; i++) {
         cluster_legalizers.push_back(std::make_unique<ClusterLegalizer>(atom_ctx.netlist(),
         prepacker,
         lb_type_rr_graphs,
@@ -637,8 +631,8 @@ bool try_pack(const t_packer_opts& packer_opts,
 
     verify_clustering(cluster_legalizers);
     AtomPBBimap final_atom_pb;
-    for (auto atom_blk : g_vpr_ctx.atom().netlist().blocks()){
-        for(auto &cluster_legalizer : cluster_legalizers) {
+    for (auto atom_blk : g_vpr_ctx.atom().netlist().blocks()) {
+        for (auto& cluster_legalizer : cluster_legalizers) {
             auto atom_pb = cluster_legalizer->atom_pb_lookup().atom_pb(atom_blk);
             if (atom_pb != nullptr) {
                 final_atom_pb.set_atom_pb(atom_blk, atom_pb);
@@ -649,7 +643,7 @@ bool try_pack(const t_packer_opts& packer_opts,
     
     g_vpr_ctx.mutable_atom().mutable_lookup().set_atom_to_pb_bimap(final_atom_pb);
 
-    for (auto atom_blk : g_vpr_ctx.atom().netlist().blocks()){
+    for (auto atom_blk : g_vpr_ctx.atom().netlist().blocks()) {
         VTR_ASSERT(g_vpr_ctx.mutable_atom().mutable_lookup().atom_pb_bimap().atom_pb(atom_blk) != nullptr);
     }
 

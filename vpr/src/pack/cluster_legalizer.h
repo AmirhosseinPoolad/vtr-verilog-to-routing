@@ -527,7 +527,7 @@ class ClusterLegalizer {
     inline const AtomPBBimap& atom_pb_lookup() const { return atom_pb_lookup_; }
     inline AtomPBBimap& mutable_atom_pb_lookup() { return atom_pb_lookup_; }
 
-    inline bool is_cluster_in_partition(PackMoleculeId mol_id) const {return partition_map_.at(mol_id) == partition_num_;}
+    inline bool is_cluster_in_partition(PackMoleculeId mol_id) const { return partition_map_.at(mol_id) == partition_num_; }
 
     void merge_with_others(std::vector<std::unique_ptr<ClusterLegalizer>>& cluster_legalizers);
 
@@ -605,7 +605,6 @@ class ClusterLegalizer {
 
     const std::unordered_map<PackMoleculeId, int>& partition_map_;
     int partition_num_;
-
 };
 
 void verify_clustering(std::vector<std::unique_ptr<ClusterLegalizer>>& cluster_legalizers);

@@ -95,7 +95,7 @@ GreedyClusterer::GreedyClusterer(const t_packer_opts& packer_opts,
     , primitive_candidate_block_types_(identify_primitive_candidate_block_types())
     , log_verbosity_(packer_opts.pack_verbosity)
     , net_output_feeds_driving_block_input_(identify_net_output_feeds_driving_block_input(atom_netlist))
-    , partition_map_(partition_map){
+    , partition_map_(partition_map) {
     partition_num_ = partition_num;
 }
 

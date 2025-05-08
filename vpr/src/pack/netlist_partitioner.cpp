@@ -20,24 +20,25 @@ NetlistPartitioner::NetlistPartitioner(const FlatPlacementInfo& flat_placement_i
     , atom_context_(atom_context) {}
 
 NetlistPartition NetlistPartitioner::get_netlist_partition(e_partition_type partition_type, int num_partitions) {
+    NetlistPartition partition_map;
     switch (partition_type)
     {
     case e_partition_type::MIN_CUT:
-        get_graph_partitioning(num_partitions, false);
+        partition_map = get_graph_partitioning(num_partitions, false);
         break;
 
     case e_partition_type::SPATIAL_MIN_CUT:
-        get_graph_partitioning(num_partitions, true);
+        partition_map = get_graph_partitioning(num_partitions, true);
         break;
 
     case e_partition_type::SPATIAL:
-        get_spatial_partitioning(num_partitions);
+        partition_map = get_spatial_partitioning(num_partitions);
         break;
     
     default:
         VPR_FATAL_ERROR(VPR_ERROR_PACK, "Unknown netlist partition type selected: %d\n", (int)partition_type);
     }
-    return NetlistPartition();
+    return partition_map;
 }
 
 static std::pair<int, int> get_closest_factors(int num) {
@@ -217,9 +218,9 @@ static void write_hmetis_file(bool use_placement_info, const AtomContext& atom_c
             
             // FIXME: why is this declared here again
             std::ofstream graph_traverse_file2("graph_traverse.txt", std::ios::out);
-            graph_traverse_file << inter_molecule_hyperedges << " " << prepacker.molecules().size() << " " << "1" << std::endl;
-            graph_traverse_file << content;
-            graph_traverse_file.close();
+            graph_traverse_file2 << inter_molecule_hyperedges << " " << prepacker.molecules().size() << " " << "1" << std::endl;
+            graph_traverse_file2 << content;
+            graph_traverse_file2.close();
         }
     } else {
         VPR_FATAL_ERROR(VPR_ERROR_PACK, "Error opening hmetis file\n");
@@ -234,7 +235,7 @@ static void call_mt_kahypar(int num_partitions) {
     // Initialize MT-KaHyPar
     mt_kahypar_initialize(1, true);
     mt_kahypar_context_t* context = mt_kahypar_context_from_preset(DEFAULT);
-    mt_kahypar_set_partitioning_parameters(context, num_partitions, 0.05, CUT);
+    mt_kahypar_set_partitioning_parameters(context, num_partitions, 0.10, CUT);
     mt_kahypar_set_seed(42);
     mt_kahypar_status_t status = mt_kahypar_set_context_parameter(context, VERBOSE, "1", &error);
     VTR_ASSERT(status == SUCCESS);
@@ -260,6 +261,8 @@ static void call_mt_kahypar(int num_partitions) {
     const double imbalance = mt_kahypar_imbalance(partitioned_hg, context);
     const int km1 = mt_kahypar_km1(partitioned_hg);
     mt_kahypar_write_partition_to_file(partitioned_hg, "partitioned_graph.txt", &error);
+
+    VTR_ASSERT(error.status == SUCCESS);
 
     std::cout << "Partitioning Results:" << std::endl;
     std::cout << "Imbalance         = " << imbalance << std::endl;

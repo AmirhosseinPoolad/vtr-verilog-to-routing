@@ -1741,8 +1741,8 @@ void verify_clustering(std::vector<std::unique_ptr<ClusterLegalizer>>& cluster_l
         }
         if (!atom_pb) {
             VPR_FATAL_ERROR(VPR_ERROR_PACK,
-                            "Atom block %s is not mapped to a pb\n",
-                            atom_ctx.netlist().block_name(blk_id).c_str());
+                            "Atom block %s with ID %d is not mapped to a pb\n",
+                            atom_ctx.netlist().block_name(blk_id).c_str(), (int)blk_id);
         }
 
         //Check the reverse mapping is consistent

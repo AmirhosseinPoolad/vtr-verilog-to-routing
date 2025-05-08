@@ -108,7 +108,8 @@ bool try_pack(const t_packer_opts& packer_opts,
     // Construct the APPack Context.
     APPackContext appack_ctx(flat_placement_info, device_ctx.grid);
 
-    
+    int num_partitions = packer_opts.num_partitions;
+
     NetlistPartitioner partitioner(flat_placement_info, prepacker, atom_ctx);
 
     e_partition_type partition_type;
@@ -118,7 +119,7 @@ bool try_pack(const t_packer_opts& packer_opts,
         partition_type = e_partition_type::MIN_CUT;
     }
 
-    NetlistPartition partition_map = partitioner.get_netlist_partition(partition_type, packer_opts.num_partitions);
+    NetlistPartition partition_map = partitioner.get_netlist_partition(partition_type, num_partitions);
 
     // Re-partition all memory blocks into the first partition
     for (auto blk : atom_ctx.netlist().blocks()) {
@@ -127,16 +128,18 @@ bool try_pack(const t_packer_opts& packer_opts,
         }
     }
 
+    VTR_ASSERT(partition_map.size() == prepacker.molecules().size());
+
     // Verify one to one partition map
     for (auto mol : prepacker.molecules()) {
         VTR_ASSERT(partition_map.contains(mol));
-        VTR_ASSERT(partition_map[mol] >= 0 && partition_map[mol] <= thread_count);
+        VTR_ASSERT(partition_map[mol] >= 0 && partition_map[mol] <= num_partitions);
     }
 
     std::vector<std::unique_ptr<ClusterLegalizer>> cluster_legalizers;
     std::vector<std::unique_ptr<GreedyClusterer>> clusterers;
     
-    for (int i = 0; i < thread_count; i++) {
+    for (int i = 0; i < num_partitions; i++) {
         cluster_legalizers.push_back(std::make_unique<ClusterLegalizer>(atom_ctx.netlist(),
         prepacker,
         lb_type_rr_graphs,

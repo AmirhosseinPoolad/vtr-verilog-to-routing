@@ -19,6 +19,27 @@ NetlistPartitioner::NetlistPartitioner(const FlatPlacementInfo& flat_placement_i
     , flat_placement_info_(flat_placement_info)
     , atom_context_(atom_context) {}
 
+NetlistPartition NetlistPartitioner::get_netlist_partition(e_partition_type partition_type, int num_partitions) {
+    switch (partition_type)
+    {
+    case e_partition_type::MIN_CUT:
+        get_graph_partitioning(num_partitions, false);
+        break;
+
+    case e_partition_type::SPATIAL_MIN_CUT:
+        get_graph_partitioning(num_partitions, true);
+        break;
+
+    case e_partition_type::SPATIAL:
+        get_spatial_partitioning(num_partitions);
+        break;
+    
+    default:
+        VPR_FATAL_ERROR(VPR_ERROR_PACK, "Unknown netlist partition type selected: %d\n", (int)partition_type);
+    }
+    return NetlistPartition();
+}
+
 static std::pair<int, int> get_closest_factors(int num) {
     int sqrt = std::sqrt(num);
     while (num % sqrt != 0) {

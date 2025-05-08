@@ -107,34 +107,18 @@ bool try_pack(const t_packer_opts& packer_opts,
     // Initialize the cluster legalizer.
     // Construct the APPack Context.
     APPackContext appack_ctx(flat_placement_info, device_ctx.grid);
-    
-    // PARALLEL TODO: add actual partitioning
-    // Have options:
-    // 1- Random
-    // 2- Hmetis
-    // 3- AP? Maybe?
-    
-    NetlistPartition partition_map;
-    NetlistPartitioner partitioner(flat_placement_info, prepacker, atom_ctx);
-    // If AP is enabled, do quadrant dividing
-    // Flat packer should be verified already
-    if (flat_placement_info.valid && !packer_opts.weighted_partitioning) {
-        partition_map = partitioner.get_spatial_partitioning(packer_opts.num_partitions);
 
-        // Print the partition map
-        if(packer_opts.pack_verbosity >= 3){
-            VTR_LOGV(packer_opts.pack_verbosity >= 3, "Partition map:\n");
-            
-            for (auto it = partition_map.begin(); it != partition_map.end(); ++it) {
-                // FIXME: Using just the first atom block id for now. Update to get entire centroid of molecule
-                auto cur_blk_loc = flat_placement_info.get_pos(prepacker.get_molecule(it->first).atom_block_ids[0]);
-                VTR_LOGV(packer_opts.pack_verbosity >= 3, "Molecule %zu is in partition %d ", it->first, it->second);
-                VTR_LOGV(packer_opts.pack_verbosity >= 3, "With location (%g, %g, %g)\n", cur_blk_loc.x, cur_blk_loc.y, cur_blk_loc.layer);
-            }
-        }
-    } else { 
-        partition_map = partitioner.get_graph_partitioning(packer_opts.num_partitions, packer_opts.weighted_partitioning);
+    
+    NetlistPartitioner partitioner(flat_placement_info, prepacker, atom_ctx);
+
+    e_partition_type partition_type;
+    if (flat_placement_info.valid ) {
+        packer_opts.weighted_partitioning ? partition_type = e_partition_type::SPATIAL_MIN_CUT : partition_type = e_partition_type::SPATIAL;
+    } else {
+        partition_type = e_partition_type::MIN_CUT;
     }
+
+    NetlistPartition partition_map = partitioner.get_netlist_partition(partition_type, packer_opts.num_partitions);
 
     // Re-partition all memory blocks into the first partition
     for (auto blk : atom_ctx.netlist().blocks()) {

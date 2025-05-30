@@ -15,10 +15,18 @@
 #include <unistd.h>
 #include <iostream>
 
-NetlistPartitioner::NetlistPartitioner(const FlatPlacementInfo& flat_placement_info, const Prepacker& prepacker, const AtomContext& atom_context)
+static constexpr int partition_threshold = 2500;
+
+NetlistPartitioner::NetlistPartitioner(const FlatPlacementInfo& flat_placement_info, const Prepacker& prepacker, const AtomContext& atom_context, const DeviceContext& device_context)
     : prepacker_(prepacker)
     , flat_placement_info_(flat_placement_info)
-    , atom_context_(atom_context) {}
+    , atom_context_(atom_context)
+    , device_context_(device_context) {
+        for (AtomBlockId atom_blk : atom_context_.netlist().blocks()) {
+            char* model_name = device_context_.arch->models.get_model(atom_context_.netlist().block_model(atom_blk)).name;
+            model_count_[model_name]++;
+        }
+    }
 
 NetlistPartition NetlistPartitioner::get_netlist_partition(e_partition_type partition_type, int num_partitions) {
     NetlistPartition partition_map(num_partitions);
@@ -40,6 +48,20 @@ NetlistPartition NetlistPartitioner::get_netlist_partition(e_partition_type part
         VPR_FATAL_ERROR(VPR_ERROR_PACK, "Unknown netlist partition type selected: %d\n", (int)partition_type);
     }
     return partition_map;
+}
+
+bool NetlistPartitioner::should_partition_mol(PackMoleculeId mol_id) {
+    for (AtomBlockId blk_id : prepacker_.get_molecule(mol_id).atom_block_ids) {
+        if (!blk_id.is_valid()) {
+            continue;
+        }
+        char* model_name = device_context_.arch->models.get_model(atom_context_.netlist().block_model(blk_id)).name;
+        // TODO: magic number
+        if (model_count_[model_name] >= partition_threshold) {
+            return true;
+        }
+    }
+    return false;
 }
 
 static std::pair<int, int> get_closest_factors(int num) {
@@ -103,6 +125,10 @@ NetlistPartition NetlistPartitioner::get_spatial_partitioning(int num_partitions
 
     // Get the partition for each molecule
     for (auto mol : prepacker_.molecules()) {
+        if (!should_partition_mol(mol)) {
+            partition_map.set_molecule_partition(mol, 0);
+            continue;
+        }
         auto cur_blk_loc = flat_placement_info_.get_pos(prepacker_.get_molecule(mol).atom_block_ids[0]);
 
         auto x = cur_blk_loc.x;

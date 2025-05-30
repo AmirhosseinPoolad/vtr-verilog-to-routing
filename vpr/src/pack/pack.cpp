@@ -112,7 +112,7 @@ bool try_pack(const t_packer_opts& packer_opts,
 
     int num_partitions = packer_opts.num_partitions;
 
-    NetlistPartitioner partitioner(flat_placement_info, prepacker, atom_ctx);
+    NetlistPartitioner partitioner(flat_placement_info, prepacker, atom_ctx, device_ctx);
 
     e_partition_type partition_type;
     if (flat_placement_info.valid ) {
@@ -122,17 +122,7 @@ bool try_pack(const t_packer_opts& packer_opts,
     }
 
     NetlistPartition partition_map = partitioner.get_netlist_partition(partition_type, num_partitions);
-
-    // Re-partition all memory blocks into the first partition
-    for (auto blk : atom_ctx.netlist().blocks()) {
-        e_pb_type_class atom_class = prepacker.get_expected_lowest_cost_pb_gnode(blk)->pb_type->class_type;
-        if (atom_class == MEMORY_CLASS) {
-            partition_map.set_molecule_partition(prepacker.get_atom_molecule(blk), 0);
-        } else if (atom_class != LUT_CLASS && atom_class != LATCH_CLASS) { // PARALLELPACK TODO: Count these and maybe actually partition them if the number is high enough
-            partition_map.set_molecule_partition(prepacker.get_atom_molecule(blk), 0);
-        }
-    }
-
+    
     std::vector<std::unique_ptr<ClusterLegalizer>> cluster_legalizers;
     std::vector<std::unique_ptr<GreedyClusterer>> clusterers;
     

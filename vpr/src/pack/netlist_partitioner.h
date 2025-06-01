@@ -10,21 +10,28 @@ class FlatPlacementInfo;
 class AtomContext;
 class DeviceContext;
 
+struct t_partition_dimension {
+  int x;
+  int y;
+  int z;
+};
+
 class NetlistPartition {
   public:
     const std::vector<PackMoleculeId>& molecules(int partition) const;
     int get_partition(PackMoleculeId molecule) const;
     void set_molecule_partition(PackMoleculeId mol, int partition);
+    inline t_partition_dimension get_partition_dimensions() const {return partition_dimensions_;}
+
     NetlistPartition() = delete;
-    NetlistPartition(int num_partitions);
+    NetlistPartition(t_partition_dimension partition_dimensions);
 
   private:
     std::unordered_map<PackMoleculeId, int> partition_map_;
     std::vector<std::vector<PackMoleculeId>> molecules_;
     std::unordered_map<std::string, int> model_count_;
+    t_partition_dimension partition_dimensions_;
 };
-
-// typedef std::unordered_map<PackMoleculeId, int> NetlistPartition;
 
 enum class e_partition_type {
   SPATIAL,
@@ -49,4 +56,5 @@ class NetlistPartitioner {
     const DeviceContext& device_context_;
 
     std::unordered_map<std::string, int> model_count_;
+
 };

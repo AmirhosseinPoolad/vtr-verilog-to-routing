@@ -533,9 +533,9 @@ class ClusterLegalizer {
 
     inline bool is_cluster_in_partition(PackMoleculeId mol_id) const { return netlist_partition_.get_partition(mol_id) == partition_num_; }
 
-    void set_partition(int partition_num);
+    void next_iteration();
 
-    void merge_with_others(std::vector<std::unique_ptr<ClusterLegalizer>>& cluster_legalizers);
+    void set_partition(int partition_num) {partition_num_ = partition_num;}
 
     inline const IntraLbPbPinLookup& intra_lb_pb_pin_lookup() const { return intra_lb_pb_pin_lookup_; }
 
@@ -613,6 +613,7 @@ class ClusterLegalizer {
 
     const NetlistPartition& netlist_partition_;
     int partition_num_;
+    int clustering_iteration_;
 
     /// @brief A lookup table for the pin mapping of the intra-lb pb pins.
     IntraLbPbPinLookup intra_lb_pb_pin_lookup_;

@@ -81,9 +81,7 @@ GreedyClusterer::GreedyClusterer(const t_packer_opts& packer_opts,
                                  const std::unordered_set<AtomNetId>& is_clock,
                                  const std::unordered_set<AtomNetId>& is_global,
                                  const PreClusterTimingManager& pre_cluster_timing_manager,
-                                 const APPackContext& appack_ctx,
-                                 const NetlistPartition& netlist_partition,
-                                 int partition_num)
+                                 const APPackContext& appack_ctx)
     : packer_opts_(packer_opts)
     , analysis_opts_(analysis_opts)
     , atom_netlist_(atom_netlist)
@@ -95,9 +93,8 @@ GreedyClusterer::GreedyClusterer(const t_packer_opts& packer_opts,
     , appack_ctx_(appack_ctx)
     , primitive_candidate_block_types_(identify_primitive_candidate_block_types())
     , log_verbosity_(packer_opts.pack_verbosity)
-    , net_output_feeds_driving_block_input_(identify_net_output_feeds_driving_block_input(atom_netlist))
-    , netlist_partition_(netlist_partition) {
-    partition_num_ = partition_num;
+    , net_output_feeds_driving_block_input_(identify_net_output_feeds_driving_block_input(atom_netlist)) {
+    
 }
 
 std::map<t_logical_block_type_ptr, size_t>
@@ -525,10 +522,6 @@ bool GreedyClusterer::try_add_candidate_mol_to_cluster(PackMoleculeId candidate_
     }
 
     return pack_status == e_block_pack_status::BLK_PASSED;
-}
-
-void GreedyClusterer::set_partition(int partition_num) {
-    partition_num_ = partition_num;
 }
 
 void GreedyClusterer::report_le_physical_block_usage(const ClusterLegalizer& cluster_legalizer) {

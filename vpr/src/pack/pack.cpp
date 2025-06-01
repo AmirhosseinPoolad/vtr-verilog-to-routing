@@ -148,9 +148,7 @@ bool try_pack(const t_packer_opts& packer_opts,
             is_clock,
             is_global,
             pre_cluster_timing_manager,
-            appack_ctx,
-            std::ref(partition_map),
-            i));
+            appack_ctx));
     }
     }
 
@@ -159,11 +157,10 @@ bool try_pack(const t_packer_opts& packer_opts,
 
 
     g_vpr_ctx.mutable_atom().mutable_lookup().set_atom_pb_bimap_lock(true);
+
     #pragma omp parallel for num_threads(thread_count)
     for (size_t partition_num = 0; partition_num < num_partitions; partition_num++) {
         int thread_num = omp_get_thread_num();
-        cluster_legalizers[thread_num]->set_partition(partition_num);
-        clusterers[thread_num]->set_partition(partition_num);
 
         ClusterLegalizer& cluster_legalizer = *cluster_legalizers[thread_num];
         GreedyClusterer& clusterer = *clusterers[thread_num];

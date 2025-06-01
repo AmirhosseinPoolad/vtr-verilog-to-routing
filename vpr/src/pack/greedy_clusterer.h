@@ -94,9 +94,7 @@ class GreedyClusterer {
                     const std::unordered_set<AtomNetId>& is_clock,
                     const std::unordered_set<AtomNetId>& is_global,
                     const PreClusterTimingManager& pre_cluster_timing_manager,
-                    const APPackContext& appack_ctx,
-                    const NetlistPartition& partition_map,
-                    int partition_num);
+                    const APPackContext& appack_ctx);
 
     /**
      * @brief Performs clustering on the pack molecules formed by the prepacker.
@@ -143,8 +141,6 @@ class GreedyClusterer {
                   bool balance_block_type_utilization,
                   AttractionInfo& attraction_groups,
                   DeviceContext& mutable_device_ctx);
-
-    void set_partition(int partition_num);
 
   private:
     /**
@@ -271,8 +267,4 @@ class GreedyClusterer {
     /// same atom net twice is when one connection is an output and the other
     /// is an input, so this should take care of all multiple connections.
     const std::unordered_set<AtomNetId> net_output_feeds_driving_block_input_;
-
-    const NetlistPartition& netlist_partition_;
-
-    int partition_num_;
 };

@@ -17,6 +17,14 @@
 
 static constexpr int partition_threshold = 2500;
 
+static std::pair<int, int> get_closest_factors(int num) {
+    int sqrt = std::sqrt(num);
+    while (num % sqrt != 0) {
+        sqrt--;
+    }
+    return std::make_pair(sqrt, num / sqrt);
+}
+
 NetlistPartitioner::NetlistPartitioner(const FlatPlacementInfo& flat_placement_info, const Prepacker& prepacker, const AtomContext& atom_context, const DeviceContext& device_context)
     : prepacker_(prepacker)
     , flat_placement_info_(flat_placement_info)
@@ -29,7 +37,7 @@ NetlistPartitioner::NetlistPartitioner(const FlatPlacementInfo& flat_placement_i
     }
 
 NetlistPartition NetlistPartitioner::get_netlist_partition(e_partition_type partition_type, int num_partitions) {
-    NetlistPartition partition_map(num_partitions);
+    NetlistPartition partition_map(t_partition_dimension(0,0,0));
     switch (partition_type)
     {
     case e_partition_type::MIN_CUT:
@@ -64,13 +72,7 @@ bool NetlistPartitioner::should_partition_mol(PackMoleculeId mol_id) {
     return false;
 }
 
-static std::pair<int, int> get_closest_factors(int num) {
-    int sqrt = std::sqrt(num);
-    while (num % sqrt != 0) {
-        sqrt--;
-    }
-    return std::make_pair(sqrt, num / sqrt);
-}
+
 
 static std::pair<t_flat_pl_loc, t_flat_pl_loc> get_flat_placement_bounding_box(const FlatPlacementInfo& flat_placement_info, const AtomContext& atom_context) {
 
@@ -98,11 +100,16 @@ static std::pair<t_flat_pl_loc, t_flat_pl_loc> get_flat_placement_bounding_box(c
 
 NetlistPartition NetlistPartitioner::get_spatial_partitioning(int num_partitions) {
     auto [min_coords, max_coords] = get_flat_placement_bounding_box(flat_placement_info_, atom_context_);
-    NetlistPartition partition_map(num_partitions);
 
-    // Get the number of partitions
-    // Can work for thread_count of 1, 2, 4, 8, 16.
-    int num_partitions_x, num_partitions_y, num_partitions_layer = 0;
+    auto axis_partitions = get_closest_factors(num_partitions);
+
+    int num_partitions_x = axis_partitions.first;
+    int num_partitions_y = axis_partitions.second;
+    int num_partitions_z = 1;
+
+    t_partition_dimension partition_dimensions = {.x = num_partitions_x, .y = num_partitions_y, .z = num_partitions_z};
+
+    NetlistPartition partition_map(partition_dimensions);
 
     if (num_partitions == 1) {
         // No need to partition, just return 0
@@ -112,14 +119,10 @@ NetlistPartition NetlistPartitioner::get_spatial_partitioning(int num_partitions
         return partition_map;
     }
 
-    auto axis_partitions = get_closest_factors(num_partitions);
+    
 
-    num_partitions_x = axis_partitions.first;
-    num_partitions_y = axis_partitions.second;
-    num_partitions_layer = 1;
-
-    double partition_size_x = (max_coords.x - min_coords.x) / num_partitions_x;
-    double partition_size_y = (max_coords.y - min_coords.y) / num_partitions_y;
+    double partition_size_x = (max_coords.x - min_coords.x) / partition_dimensions.x;
+    double partition_size_y = (max_coords.y - min_coords.y) / partition_dimensions.y;
     int partition_size_layer = 1;
     VTR_LOG("Partition size: (%lf, %lf, %d)\n", partition_size_x, partition_size_y, partition_size_layer);
 
@@ -136,16 +139,16 @@ NetlistPartition NetlistPartitioner::get_spatial_partitioning(int num_partitions
 
         int partition_x = (int)((x - min_coords.x) / partition_size_x);
         int partition_y = (int)((y - min_coords.y) / partition_size_y);
-        partition_x = partition_x == num_partitions_x ? partition_x - 1 : partition_x;
-        partition_y = partition_y == num_partitions_y ? partition_y - 1 : partition_y;
+        partition_x = partition_x == partition_dimensions.x ? partition_x - 1 : partition_x;
+        partition_y = partition_y == partition_dimensions.y ? partition_y - 1 : partition_y;
 
         int partition_layer = 0;
 
-        int partition_id = partition_x + (partition_y * num_partitions_x);
+        int partition_id = partition_x + (partition_y * partition_dimensions.x);
 
         // Check if the partition is valid. This should never happen
-        if (partition_x < 0 || partition_x >= num_partitions_x || partition_y < 0 || partition_y >= num_partitions_y || partition_layer < 0 || partition_layer >= num_partitions_layer || partition_id < 0 || partition_id >= num_partitions) {
-            VPR_FATAL_ERROR(VPR_ERROR_PACK, "Partition: (%d, %d, %d) = (%d) is out of bounds: max partitions(%d, %d, %d) = (%d)\n", partition_x, partition_y, partition_layer, partition_id, num_partitions_x, num_partitions_y, num_partitions_layer, num_partitions);
+        if (partition_x < 0 || partition_x >= partition_dimensions.x || partition_y < 0 || partition_y >= partition_dimensions.y || partition_layer < 0 || partition_layer >= partition_dimensions.z || partition_id < 0 || partition_id >= num_partitions) {
+            VPR_FATAL_ERROR(VPR_ERROR_PACK, "Partition: (%d, %d, %d) = (%d) is out of bounds: max partitions(%d, %d, %d) = (%d)\n", partition_x, partition_y, partition_layer, partition_id, partition_dimensions.x, partition_dimensions.y, partition_dimensions.z, num_partitions);
         }
         partition_map.set_molecule_partition(mol, partition_id);
     }
@@ -303,7 +306,8 @@ static void call_mt_kahypar(int num_partitions) {
 }
 
 static NetlistPartition read_partition_file(const Prepacker& prepacker, int num_partitions) {
-    NetlistPartition partition_map(num_partitions);
+    t_partition_dimension t_partition_dimensions {.x = num_partitions, .y = 1, .z = 1};
+    NetlistPartition partition_map(t_partition_dimensions);
     std::ifstream partitioned_graph_file("partitioned_graph.txt");
     std::string line;
 
@@ -367,6 +371,7 @@ void NetlistPartition::set_molecule_partition(PackMoleculeId mol, int partition)
     molecules_[partition].push_back(mol);
 }
 
-NetlistPartition::NetlistPartition(int num_partitions) {
-    molecules_.resize(num_partitions);
+NetlistPartition::NetlistPartition(t_partition_dimension partition_dimensions) {
+    partition_dimensions_ = partition_dimensions;
+    molecules_.resize(partition_dimensions.x * partition_dimensions.y * partition_dimensions.z);
 }

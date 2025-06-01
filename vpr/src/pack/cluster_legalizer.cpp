@@ -1856,67 +1856,8 @@ void ClusterLegalizer::finalize() {
     }
 }
 
-void ClusterLegalizer::merge_with_others(std::vector<std::unique_ptr<ClusterLegalizer>>& cluster_legalizers) {
-    for (auto atom_blk : g_vpr_ctx.atom().netlist().blocks()){
-        for(auto &cluster_legalizer : cluster_legalizers) {
-            LegalizationClusterId atom_cluster_id = cluster_legalizer->atom_cluster_[atom_blk];
-            if (atom_cluster_id != LegalizationClusterId::INVALID()) {
-                VTR_ASSERT(atom_cluster_[atom_blk] == LegalizationClusterId::INVALID());
-                atom_cluster_.update(atom_blk, atom_cluster_id);
-            }
-            
-            auto atom_pb = cluster_legalizer->atom_pb_lookup().atom_pb(atom_blk);
-            if (atom_pb != nullptr) {
-                atom_pb_lookup_.set_atom_pb(atom_blk, atom_pb);
-                break;
-            }
-
-        }
-    }
-    for (auto mol_id : prepacker_.molecules()){
-        for(auto &cluster_legalizer : cluster_legalizers) {
-            LegalizationClusterId molecule_cluster_id = cluster_legalizer->molecule_cluster_[mol_id];
-            if (molecule_cluster_id != LegalizationClusterId::INVALID()) {
-                VTR_ASSERT(molecule_cluster_[mol_id] == LegalizationClusterId::INVALID());
-                molecule_cluster_.update(mol_id, molecule_cluster_id);
-                clustering_chain_info_.update(prepacker_.get_molecule(mol_id).chain_id, cluster_legalizer->clustering_chain_info_[prepacker_.get_molecule(mol_id).chain_id]);
-            }
-        }
-    }
-
-    for(auto &cluster_legalizer : cluster_legalizers) {
-        for(auto cluster_id : cluster_legalizer->legalization_cluster_ids_) {
-            if (cluster_id == LegalizationClusterId::INVALID()) {
-                continue;
-            }
-            legalization_cluster_ids_.update(cluster_id, cluster_id);
-            legalization_clusters_.update(cluster_id, cluster_legalizer->legalization_clusters_[cluster_id]);
-            cluster_legalizer->legalization_clusters_[cluster_id].pb = nullptr;
-        }
-    }
-
-    for(auto &cluster_legalizer : cluster_legalizers) {
-        cluster_legalizer->atom_cluster_.clear();
-        cluster_legalizer->molecule_cluster_.clear();
-        cluster_legalizer->legalization_cluster_ids_.clear();
-        cluster_legalizer->legalization_clusters_.clear();
-        cluster_legalizer->atom_pb_lookup_.reset_bimap();
-    }
-
-    for (auto atom_blk : g_vpr_ctx.atom().netlist().blocks()){
-        LegalizationClusterId atom_cluster_id = atom_cluster_[atom_blk];
-        VTR_ASSERT(atom_cluster_id != LegalizationClusterId::INVALID());
-        VTR_ASSERT(atom_pb_lookup_.atom_pb(atom_blk) != nullptr);
-    }
-
-    for (auto mol_id : prepacker_.molecules()) {
-        LegalizationClusterId molecule_cluster_id = molecule_cluster_[mol_id];
-        VTR_ASSERT(molecule_cluster_id != LegalizationClusterId::INVALID());
-    }
-}
-
-void ClusterLegalizer::set_partition(int partition_num) {
-    partition_num_ = partition_num;
+void ClusterLegalizer::next_iteration() {
+    clustering_iteration_++;
 }
 
 ClusterLegalizer::~ClusterLegalizer() {

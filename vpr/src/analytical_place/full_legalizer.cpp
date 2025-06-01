@@ -298,7 +298,7 @@ void NaiveFullLegalizer::create_clusters(const PartialPlacement& p_placement) {
                                        vpr_setup_.PackerOpts.enable_pin_feasibility_filter,
                                        arch_.models,
                                        vpr_setup_.PackerOpts.pack_verbosity,
-                                       NetlistPartition(0),
+                                       NetlistPartition(t_partition_dimension(1,1,1)),
                                        0));
     ClusterLegalizer &cluster_legalizer = *leg_vec[0];
     // Create clusters for each tile.

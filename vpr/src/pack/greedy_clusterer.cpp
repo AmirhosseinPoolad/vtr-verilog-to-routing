@@ -527,6 +527,10 @@ bool GreedyClusterer::try_add_candidate_mol_to_cluster(PackMoleculeId candidate_
     return pack_status == e_block_pack_status::BLK_PASSED;
 }
 
+void GreedyClusterer::set_partition(int partition_num) {
+    partition_num_ = partition_num;
+}
+
 void GreedyClusterer::report_le_physical_block_usage(const ClusterLegalizer& cluster_legalizer) {
     // find the cluster type that has lut primitives
     auto logic_block_type = identify_logic_block_type(primitive_candidate_block_types_);

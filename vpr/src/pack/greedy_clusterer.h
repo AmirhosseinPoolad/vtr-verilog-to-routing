@@ -144,6 +144,8 @@ class GreedyClusterer {
                   AttractionInfo& attraction_groups,
                   DeviceContext& mutable_device_ctx);
 
+    void set_partition(int partition_num);
+
   private:
     /**
      * @brief Given a seed molecule and a legalization strategy, tries to grow

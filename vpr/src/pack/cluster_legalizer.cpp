@@ -1915,6 +1915,10 @@ void ClusterLegalizer::merge_with_others(std::vector<std::unique_ptr<ClusterLega
     }
 }
 
+void ClusterLegalizer::set_partition(int partition_num) {
+    partition_num_ = partition_num;
+}
+
 ClusterLegalizer::~ClusterLegalizer() {
     // Destroy all clusters (no need to compress).
     for (LegalizationClusterId cluster_id : legalization_cluster_ids_) {

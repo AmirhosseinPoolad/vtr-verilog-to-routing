@@ -127,8 +127,7 @@ bool try_pack(const t_packer_opts& packer_opts,
     std::vector<std::unique_ptr<GreedyClusterer>> clusterers;
     
     {
-    vtr::ScopedFinishTimer t2("Making cluster classes");
-    for (int i = 0; i < num_partitions; i++) {
+    for (int i = 0; i < thread_count; i++) {
         cluster_legalizers.push_back(std::make_unique<ClusterLegalizer>(atom_ctx.netlist(),
         prepacker,
         lb_type_rr_graphs,
@@ -161,7 +160,14 @@ bool try_pack(const t_packer_opts& packer_opts,
 
     g_vpr_ctx.mutable_atom().mutable_lookup().set_atom_pb_bimap_lock(true);
     #pragma omp parallel for num_threads(thread_count)
-    for (size_t i = 0; i < cluster_legalizers.size(); i++) {
+    for (size_t partition_num = 0; partition_num < num_partitions; partition_num++) {
+        int thread_num = omp_get_thread_num();
+        cluster_legalizers[thread_num]->set_partition(partition_num);
+        clusterers[thread_num]->set_partition(partition_num);
+
+        ClusterLegalizer& cluster_legalizer = *cluster_legalizers[thread_num];
+        GreedyClusterer& clusterer = *clusterers[thread_num];
+
         double stime = omp_get_wtime();
         bool allow_unrelated_clustering = false;
         if (packer_opts.allow_unrelated_clustering == e_unrelated_clustering::ON) {
@@ -183,7 +189,7 @@ bool try_pack(const t_packer_opts& packer_opts,
             //  num_used_type_instances: A map used to save the number of used
             //                           instances from each logical block type.
             std::map<t_logical_block_type_ptr, size_t> num_used_type_instances;
-            num_used_type_instances = clusterers[i]->do_clustering(*cluster_legalizers[i],
+            num_used_type_instances = clusterer.do_clustering(cluster_legalizer,
                                                             prepacker,
                                                             allow_unrelated_clustering,
                                                             balance_block_type_util,
@@ -198,7 +204,7 @@ bool try_pack(const t_packer_opts& packer_opts,
             * of the floorplan not fitting, so attraction groups are turned on for later iterations.
             */
             bool floorplan_regions_overfull = floorplan_constraints_regions_overfull(overfull_partition_regions,
-                                                                                    *cluster_legalizers[i],
+                                                                                    cluster_legalizer,
                                                                                     device_ctx.logical_block_types);
 
             bool floorplan_not_fitting = (floorplan_regions_overfull || g_vpr_ctx.floorplanning().constraints.get_num_partitions() > 0);
@@ -256,7 +262,7 @@ bool try_pack(const t_packer_opts& packer_opts,
                     //       all types that were overused. Or if that is hard, just
                     //       do it for all block types. Doing it only for a clb
                     //       string is dangerous -VB.
-                    cluster_legalizers[i]->get_target_external_pin_util().set_block_pin_util("clb", pin_util);
+                    cluster_legalizer.get_target_external_pin_util().set_block_pin_util("clb", pin_util);
                 }
 
             } else { //Unable to pack densely enough: Give Up
@@ -292,11 +298,11 @@ bool try_pack(const t_packer_opts& packer_opts,
         // g_vpr_ctx.mutable_floorplanning().cluster_constraints.clear();
 
             // Reset the cluster legalizer for re-clustering.
-            cluster_legalizers[i]->reset();
+            cluster_legalizer.reset();
             ++pack_iteration;
         }
         double ftime = omp_get_wtime();
-        VTR_LOG("Thread %d took %f seconds in the main loop\n", i, ftime - stime);
+        VTR_LOG("Thread %d took %f seconds in the main loop\n", thread_num, ftime - stime);
     }
 
     printf("Done\n");

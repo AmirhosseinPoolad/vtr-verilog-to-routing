@@ -533,6 +533,8 @@ class ClusterLegalizer {
 
     inline bool is_cluster_in_partition(PackMoleculeId mol_id) const { return netlist_partition_.get_partition(mol_id) == partition_num_; }
 
+    void set_partition(int partition_num);
+
     void merge_with_others(std::vector<std::unique_ptr<ClusterLegalizer>>& cluster_legalizers);
 
     inline const IntraLbPbPinLookup& intra_lb_pb_pin_lookup() const { return intra_lb_pb_pin_lookup_; }

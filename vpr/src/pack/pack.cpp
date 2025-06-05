@@ -121,7 +121,7 @@ bool try_pack(const t_packer_opts& packer_opts,
         partition_type = e_partition_type::MIN_CUT;
     }
 
-    NetlistPartition partition_map = partitioner.get_netlist_partition(partition_type, num_partitions);
+    NetlistPartition partitioning = partitioner.get_netlist_partition(partition_type, num_partitions);
     
     std::vector<std::unique_ptr<ClusterLegalizer>> cluster_legalizers;
     std::vector<std::unique_ptr<GreedyClusterer>> clusterers;
@@ -137,7 +137,7 @@ bool try_pack(const t_packer_opts& packer_opts,
         packer_opts.enable_pin_feasibility_filter,
         arch.models,
         packer_opts.pack_verbosity,
-        std::ref(partition_map),
+        partitioning,
         i));
 
         clusterers.push_back(std::make_unique<GreedyClusterer>(packer_opts,
@@ -148,7 +148,8 @@ bool try_pack(const t_packer_opts& packer_opts,
             is_clock,
             is_global,
             pre_cluster_timing_manager,
-            appack_ctx));
+            appack_ctx,
+            partitioning));
     }
     }
 
@@ -157,13 +158,42 @@ bool try_pack(const t_packer_opts& packer_opts,
 
 
     g_vpr_ctx.mutable_atom().mutable_lookup().set_atom_pb_bimap_lock(true);
+    
+    // t_partition_dimension current_dimensions = partitioning.get_partition_dimensions();
+    // bool single_partition = false;
+    // int partition_iteration = 0;
+    // while (!single_partition){
+    //     if(current_dimensions == t_partition_dimension(1,1,1)) {
+    //         single_partition = true;
+    //     }
+
+    //     for(int z_dim = 0; z_dim < current_dimensions.z; z_dim++) {
+    //         for(int x_dim = 0; x_dim < current_dimensions.x; x_dim++) {
+    //             for(int y_dim = 0; y_dim < current_dimensions.y; y_dim++) {
+    //                 int tid = current_dimensions.num_partitions() % thread_count;
+                    
+    //                 // DO PACKING FOR THIS ITERATION
+    //             }
+    //         }
+    //     }
+
+    //     current_dimensions = current_dimensions.non_zero_shiftl(1);
+    //     partition_iteration++;
+    //     for(auto& cluster_legalizer : cluster_legalizers) {
+    //         cluster_legalizer->next_iteration();
+    //     }
+    
+    // }
 
     #pragma omp parallel for num_threads(thread_count)
-    for (size_t partition_num = 0; partition_num < num_partitions; partition_num++) {
+    for (int partition_num = 0; partition_num < num_partitions; partition_num++) {
         int thread_num = omp_get_thread_num();
 
         ClusterLegalizer& cluster_legalizer = *cluster_legalizers[thread_num];
         GreedyClusterer& clusterer = *clusterers[thread_num];
+
+        cluster_legalizer.set_partition(partition_num);
+        clusterer.set_partition(partition_num);
 
         double stime = omp_get_wtime();
         bool allow_unrelated_clustering = false;

@@ -78,12 +78,6 @@ add_library(libvpr STATIC
 
 target_include_directories(libvpr PUBLIC ${LIB_INCLUDE_DIRS})
 
-# Add OpenMP support
-find_package(OpenMP)
-if(OpenMP_CXX_FOUND)
-    target_link_libraries(libvpr OpenMP::OpenMP_CXX)
-endif()
-
 find_package(MtKaHyPar)
 if(MtKaHyPar_FOUND)
   target_link_libraries(libvpr MtKaHyPar::mtkahypar)

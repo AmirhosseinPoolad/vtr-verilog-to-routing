@@ -531,7 +531,7 @@ class ClusterLegalizer {
     inline const AtomPBBimap& atom_pb_lookup() const { return atom_pb_lookup_; }
     inline AtomPBBimap& mutable_atom_pb_lookup() { return atom_pb_lookup_; }
 
-    inline bool is_cluster_in_partition(PackMoleculeId mol_id) const { return netlist_partition_.get_partition(mol_id) == partition_num_; }
+    bool is_cluster_in_partition(PackMoleculeId mol_id) const;
 
     void next_iteration();
 
@@ -545,19 +545,19 @@ class ClusterLegalizer {
   private:
     /// @brief A vector of the legalization cluster IDs. If any of them are
     ///        invalid, then that means that the cluster has been destroyed.
-    vtr::vector_map<LegalizationClusterId, LegalizationClusterId> legalization_cluster_ids_; // MERGED
+    vtr::vector_map<LegalizationClusterId, LegalizationClusterId> legalization_cluster_ids_;
 
     /// @brief Lookup table for which cluster each molecule is in.
-    vtr::vector_map<PackMoleculeId, LegalizationClusterId> molecule_cluster_; // MERGED
+    vtr::vector_map<PackMoleculeId, LegalizationClusterId> molecule_cluster_;
 
     /// @brief Clustering chain information for each of the chains in the prepacker.
-    vtr::vector_map<MoleculeChainId, t_clustering_chain_info> clustering_chain_info_; // MERGED
+    vtr::vector_map<MoleculeChainId, t_clustering_chain_info> clustering_chain_info_;
 
     /// @brief List of all legalization clusters.
-    vtr::vector_map<LegalizationClusterId, LegalizationCluster> legalization_clusters_; // MERGED
+    vtr::vector_map<LegalizationClusterId, LegalizationCluster> legalization_clusters_;
 
     /// @brief A lookup-table for which cluster the given atom is packed into.
-    vtr::vector_map<AtomBlockId, LegalizationClusterId> atom_cluster_; //MERGED
+    vtr::vector_map<AtomBlockId, LegalizationClusterId> atom_cluster_;
 
     /// @brief Stores the NoC group ID of each atom block. Atom blocks that
     ///        belong to different NoC groups can't be clustered with each other

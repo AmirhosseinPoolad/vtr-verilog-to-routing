@@ -81,7 +81,8 @@ GreedyClusterer::GreedyClusterer(const t_packer_opts& packer_opts,
                                  const std::unordered_set<AtomNetId>& is_clock,
                                  const std::unordered_set<AtomNetId>& is_global,
                                  const PreClusterTimingManager& pre_cluster_timing_manager,
-                                 const APPackContext& appack_ctx)
+                                 const APPackContext& appack_ctx,
+                                 const NetlistPartition& netlist_partition)
     : packer_opts_(packer_opts)
     , analysis_opts_(analysis_opts)
     , atom_netlist_(atom_netlist)
@@ -93,8 +94,9 @@ GreedyClusterer::GreedyClusterer(const t_packer_opts& packer_opts,
     , appack_ctx_(appack_ctx)
     , primitive_candidate_block_types_(identify_primitive_candidate_block_types())
     , log_verbosity_(packer_opts.pack_verbosity)
-    , net_output_feeds_driving_block_input_(identify_net_output_feeds_driving_block_input(atom_netlist)) {
-    
+    , net_output_feeds_driving_block_input_(identify_net_output_feeds_driving_block_input(atom_netlist)) 
+    , netlist_partition_(netlist_partition){
+    num_clustered_mols_ = 0;    
 }
 
 std::map<t_logical_block_type_ptr, size_t>
@@ -156,7 +158,7 @@ GreedyClusterer::do_clustering(ClusterLegalizer& cluster_legalizer,
 
     // Continue clustering as long as a valid seed is returned from the seed
     // selector.
-    while (seed_mol_id.is_valid()) {
+    while (seed_mol_id.is_valid() && num_clustered_mols_ <= (netlist_partition_.molecules(partition_).size() / 2)) {
         // Check to ensure that this molecule is unclustered.
         VTR_ASSERT(!cluster_legalizer.is_mol_clustered(seed_mol_id));
 
@@ -334,6 +336,8 @@ LegalizationClusterId GreedyClusterer::try_grow_cluster(PackMoleculeId seed_mol_
             cluster_legalizer.compress();
             // Cluster failed to grow.
             return LegalizationClusterId();
+        } else {
+            num_clustered_mols_ += cluster_legalizer.get_cluster_molecules(legalization_cluster_id).size();
         }
     }
 

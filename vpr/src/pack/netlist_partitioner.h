@@ -9,12 +9,21 @@ class Prepacker;
 class FlatPlacementInfo;
 class AtomContext;
 class DeviceContext;
-
 struct t_partition_dimension {
   int x;
   int y;
   int z;
+
+  bool operator==(const t_partition_dimension&) const = default;
+
+  t_partition_dimension operator/(int rhs) const;
+  t_partition_dimension operator<<(int rhs) const;
+
+  t_partition_dimension non_zero_shiftl(int num);
+  inline int num_partitions() const {return x*y*z;}
+  t_partition_dimension from_index(int partition_index);
 };
+
 
 class NetlistPartition {
   public:

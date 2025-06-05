@@ -5,6 +5,7 @@
 #include "prepack.h"
 #include "flat_placement_types.h"
 #include "vpr_context.h"
+#include "vtr_assert.h"
 #include <mtkahypar.h>
 
 #include <iostream>
@@ -15,7 +16,7 @@
 #include <unistd.h>
 #include <iostream>
 
-static constexpr int partition_threshold = 2500;
+static constexpr int partition_threshold = 5000;
 
 static std::pair<int, int> get_closest_factors(int num) {
     int sqrt = std::sqrt(num);
@@ -63,6 +64,11 @@ bool NetlistPartitioner::should_partition_mol(PackMoleculeId mol_id) {
         if (!blk_id.is_valid()) {
             continue;
         }
+
+        if(prepacker_.get_expected_lowest_cost_pb_gnode(blk_id)->pb_type->class_type == MEMORY_CLASS) {
+            return false;
+        }
+
         char* model_name = device_context_.arch->models.get_model(atom_context_.netlist().block_model(blk_id)).name;
         // TODO: magic number
         if (model_count_[model_name] >= partition_threshold) {
@@ -375,3 +381,32 @@ NetlistPartition::NetlistPartition(t_partition_dimension partition_dimensions) {
     partition_dimensions_ = partition_dimensions;
     molecules_.resize(partition_dimensions.x * partition_dimensions.y * partition_dimensions.z);
 }
+
+t_partition_dimension t_partition_dimension::non_zero_shiftl(int num) {
+    int new_x = this->x << num;
+    int new_y = this->y << num;
+    int new_z = this->z << num;
+
+    if(new_x == 0) new_x = 1;
+    if(new_y == 0) new_y = 1;
+    if(new_z == 0) new_z = 1;
+
+    return t_partition_dimension(new_x, new_y, new_z);
+}
+
+t_partition_dimension t_partition_dimension::from_index(int partition_index) {
+    VTR_ASSERT(partition_index < x*y*z);
+    int new_z = (partition_index % (x * y * z) ) / (x * y);
+    int new_y = (partition_index % (x * y)     ) / x;
+    int new_x = (partition_index % (x)         );
+
+    return t_partition_dimension(new_x, new_y, new_z);
+}
+
+t_partition_dimension t_partition_dimension::operator/(int rhs) const {
+    return t_partition_dimension(x/rhs, y/rhs, z/rhs);
+}
+
+  t_partition_dimension t_partition_dimension::operator<<(int rhs) const {
+    return t_partition_dimension(x << rhs, y << rhs, z << rhs);
+  }

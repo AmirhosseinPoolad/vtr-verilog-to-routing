@@ -22,6 +22,7 @@
 #include "cluster_router.h"
 #include "globals.h"
 #include "logic_types.h"
+#include "netlist_partitioner.h"
 #include "netlist_utils.h"
 #include "noc_aware_cluster_util.h"
 #include "noc_data_types.h"
@@ -1608,7 +1609,8 @@ ClusterLegalizer::ClusterLegalizer(const AtomNetlist& atom_netlist,
                                    int partition_num)
     : prepacker_(prepacker) 
     , netlist_partition_(netlist_partition)
-    , partition_num_(partition_num) {
+    , partition_num_(partition_num)
+    , clustering_iteration_(0) {
     // Verify that the inputs are valid.
     VTR_ASSERT_SAFE(lb_type_rr_graphs != nullptr);
 
@@ -1854,6 +1856,15 @@ void ClusterLegalizer::finalize() {
         if (cluster.router_data != nullptr)
             clean_cluster(cluster_id);
     }
+}
+
+bool ClusterLegalizer::is_cluster_in_partition(PackMoleculeId mol_id) const {
+    int mol_part = netlist_partition_.get_partition(mol_id);
+    t_partition_dimension partition_dimensions = netlist_partition_.get_partition_dimensions();
+    t_partition_dimension mol_partition_coords = partition_dimensions.from_index(mol_part);
+    t_partition_dimension current_partition_cords = partition_dimensions.from_index(partition_num_);
+    t_partition_dimension shifted_coords = mol_partition_coords << clustering_iteration_;
+    return  shifted_coords == current_partition_cords;
 }
 
 void ClusterLegalizer::next_iteration() {

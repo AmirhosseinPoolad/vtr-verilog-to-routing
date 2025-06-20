@@ -416,9 +416,14 @@ Use the options below to override this default naming behaviour.
 .. option:: --write_placement_delay_lookup <file>
 
     Writes the placement delay lookup to the specified file. Expects a file extension of either ``.capnp`` or ``.bin``.
+
+.. option:: --read_initial_place_file <file>
+
+    Reads in the initial cluster-level placement (in :ref:`.place file format <vpr_place_file>`) from the specified file and uses it as the starting point for annealing improvement, instead of generating an initial placement internally.
+
 .. option:: --write_initial_place_file <file>
 
-    Writes out the the placement chosen by the initial placement algorithm to the specified file.
+    Writes out the clustered netlist placement chosen by the initial placement algorithm to the specified file, in :ref:`.place file format <vpr_place_file>`.
 
 .. option:: --outfile_prefix <string>
 
@@ -838,9 +843,9 @@ If any of init_t, exit_t or alpha_t is specified, the user schedule, with a fixe
 
     Controls how the placer handles blocks (of any type) during placement.
 
-    * ``<file.place>``: A path to a file listing the desired location of blocks in the netlist.
+    * ``<file.place>``: A path to a file listing the desired location of clustered blocks in the netlist.
 
-    This place location file is in the same format as a :ref:`normal placement file <vpr_place_file>`, but does not require the first two lines which are normally at the top     of a placement file that specify the netlist file, netlist ID, and array size.
+    This place location file is in the same format as a :ref:`.place file <vpr_place_file>`, but does not require the first two lines which are normally at the top     of a placement file that specify the netlist file, netlist ID, and array size.
 
     **Default:** ````.
 
@@ -1276,6 +1281,40 @@ Analytical Placement is generally split into three stages:
 
     **Default:** ``0.5``
 
+.. option:: --ap_partial_legalizer_target_density { auto | <regex>:<float>,<float> }
+
+   Sets the target density of different physical tiles on the FPGA device
+   for the partial legalizer in the AP flow. The partial legalizer will
+   try to fill tiles up to (but not beyond) this target density. This
+   is used as a guide, the legalizer may not follow this if it must fill
+   the tile more.
+
+   The partial legalizer uses an abstraction called "mass" to describe the resources
+   used by a set of primitives in the netlist and the capacity of resources in a
+   given tile. For primitives like LUTs, FFs, and DSPs this mass can be thought of
+   as the number of pins used (but not exactly). For memories, this mass can be
+   thought of as the number of bits stored. This target density parameter lowers
+   the mass capacity of tiles.
+
+   When this option is set ot auto, VPR will select good values for the
+   target density of tiles.
+
+   reasonable values are between 0.0 and 1.0, with negative values not being allowed.
+
+   This option is similar to appack_max_dist_th, where a regex string
+   is used to set the target density of different physical tiles.
+
+   For example:
+
+     .. code-block:: none
+
+        --ap_partial_legalizer_target_density .*:0.9 "clb|memory:0.8"
+
+   Would set the target density of all physical tiles to be 0.9, except for the clb and
+   memory tiles, which will be set to a target density of 0.8.
+
+    **Default:** ``auto``
+
 .. option:: --appack_max_dist_th { auto | <regex>:<float>,<float> }
 
    Sets the maximum candidate distance thresholds for the logical block types
@@ -1319,6 +1358,14 @@ Analytical Placement is generally split into three stages:
 
     **Default:** ``auto``
 
+.. option:: --ap_high_fanout_threshold <int>
+
+    Defines the threshold for high fanout nets within AP flow.
+
+    Ignores the nets that have higher fanouts than the threshold for the analytical solver.
+
+    **Default:** ``256``
+
 .. option:: --ap_verbosity <int>
 
     Controls the verbosity of the AP flow output.
@@ -1335,6 +1382,15 @@ Analytical Placement is generally split into three stages:
     * ``20 <= verbosity`` Print very detailed messages on intra-stage algorithms.
 
     **Default:** ``1``
+
+.. option:: --ap_generate_mass_report {on | off}
+
+    Controls whether to generate a report on how the partial legalizer
+    within the AP flow calculates the mass of primitives and the
+    capacity of tiles on the device. This report is useful when
+    debugging the partial legalizer.
+
+    **Default:** ``off``
 
 
 .. _router_options:
@@ -1767,6 +1823,20 @@ The following options are only valid when the router is in timing-driven mode (t
      * ``map``: A more advanced lookahead which accounts for diverse wire types and their connectivity
 
      **Default:** ``map``
+
+.. option:: --router_initial_acc_cost_chan_congestion_threshold <float>
+
+    Utilization threshold above which initial accumulated routing cost (acc_cost) is increased to penalize congested channels.
+    Used to bias routing away from highly utilized regions during early routing iterations.
+
+    **Default:** ``0.5``
+
+.. option:: --router_initial_acc_cost_chan_congestion_weight <float>
+    Weight applied to the excess channel utilization (above threshold) when computing the initial accumulated cost (acc_cost)of routing resources.
+
+    Higher values make the router more sensitive to early congestion.
+
+    **Default:** ``0.5``
 
 .. option:: --router_max_convergence_count <float>
 

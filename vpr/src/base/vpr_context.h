@@ -46,6 +46,8 @@ class PostClusterDelayCalculator;
 
 #endif /* NO_SERVER */
 
+struct t_rr_node_route_inf;
+
 /**
  * @brief A Context is collection of state relating to a particular part of VPR
  *
@@ -268,7 +270,7 @@ struct DeviceContext : public Context {
     /*******************************************************************
      * Clock Network
      ********************************************************************/
-    t_clock_arch* clock_arch;
+    std::shared_ptr<std::vector<t_clock_network>> clock_arch;
 
     /// @brief Name of rrgraph file read (if any).
     ///        Used to determine if the specified rr-graph file is already loaded,
@@ -552,9 +554,7 @@ struct RoutingContext : public Context {
                RouterLookahead>
         cached_router_lookahead_;
 
-    /**
-     * @brief User specified routing constraints
-     */
+    /// @brief User specified routing constraints
     UserRouteConstraints constraints;
 
     /** Is flat routing enabled? */

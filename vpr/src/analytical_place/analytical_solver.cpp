@@ -111,13 +111,32 @@ std::unique_ptr<AnalyticalSolver> make_analytical_solver(e_ap_analytical_solver 
 AnalyticalSolver::AnalyticalSolver(const APNetlist& netlist,
                                    const AtomNetlist& atom_netlist,
                                    const PreClusterTimingManager& pre_cluster_timing_manager,
+                                   const DeviceGrid& device_grid,
                                    float ap_timing_tradeoff,
                                    int log_verbosity)
     : netlist_(netlist)
+    , atom_netlist_(atom_netlist)
     , blk_id_to_row_id_(netlist.blocks().size(), APRowId::INVALID())
     , row_id_to_blk_id_(netlist.blocks().size(), APBlockId::INVALID())
     , net_weights_(netlist.nets().size(), 1.0f)
+    , device_grid_width_(device_grid.width())
+    , device_grid_height_(device_grid.height())
+    , ap_timing_tradeoff_(ap_timing_tradeoff)
     , log_verbosity_(log_verbosity) {
+
+    // Mark completely disconnected blocks. Since these blocks are not connected
+    // to any nets that we care about for AP, we should not pass them into the
+    // AP solver.
+    vtr::vector<APBlockId, bool> block_is_used(netlist.blocks().size(), false);
+    for (APNetId net_id : netlist.nets()) {
+        if (netlist.net_is_ignored(net_id))
+            continue;
+        for (APPinId pin_id : netlist.net_pins(net_id)) {
+            APBlockId blk_id = netlist.pin_block(pin_id);
+            block_is_used[blk_id] = true;
+        }
+    }
+
     // Get the number of moveable blocks in the netlist and create a unique
     // row ID from [0, num_moveable_blocks) for each moveable block in the
     // netlist.
@@ -129,6 +148,12 @@ AnalyticalSolver::AnalyticalSolver(const APNetlist& netlist,
             num_fixed_blocks_++;
         if (netlist.block_mobility(blk_id) != APBlockMobility::MOVEABLE)
             continue;
+        // If this block is disconnected (unused), add it to the disconnected
+        // blocks vector and skip creating a row ID for it.
+        if (!block_is_used[blk_id]) {
+            disconnected_blocks_.push_back(blk_id);
+            continue;
+        }
         APRowId new_row_id = APRowId(current_row_id);
         blk_id_to_row_id_[blk_id] = new_row_id;
         row_id_to_blk_id_[new_row_id] = blk_id;
@@ -136,19 +161,38 @@ AnalyticalSolver::AnalyticalSolver(const APNetlist& netlist,
         num_moveable_blocks_++;
     }
 
-    if (pre_cluster_timing_manager.is_valid()) {
-        for (APNetId net_id : netlist.nets()) {
-            // Get the atom net associated with the given AP net. When
-            // constructing the AP netlist, we happen to set the name of each
-            // AP net to the same name as the atom net that generated them!
-            // TODO: Create a proper lookup structure to go from the AP Netlist
-            //       back to the Atom Netlist.
-            AtomNetId atom_net_id = atom_netlist.find_net(netlist.net_name(net_id));
-            VTR_ASSERT(atom_net_id.is_valid());
-            float crit = pre_cluster_timing_manager.calc_net_setup_criticality(atom_net_id, atom_netlist);
+    update_net_weights(pre_cluster_timing_manager);
+}
 
-            net_weights_[net_id] = ap_timing_tradeoff * crit + (1.0f - ap_timing_tradeoff);
-        }
+void AnalyticalSolver::update_net_weights(const PreClusterTimingManager& pre_cluster_timing_manager) {
+    // If the pre-cluster timing manager has not been initialized (i.e. timing
+    // analysis is off), no need to update.
+    if (!pre_cluster_timing_manager.is_valid())
+        return;
+
+    // For each of the nets, update the net weights.
+    for (APNetId net_id : netlist_.nets()) {
+        // Note: To save time, we do not compute the weights of nets that we
+        //       do not care about for AP. This leaves their weights at 1.0 just
+        //       in case they are accidentally used.
+        if (netlist_.net_is_ignored(net_id))
+            continue;
+
+        AtomNetId atom_net_id = netlist_.net_atom_net(net_id);
+        VTR_ASSERT_SAFE(atom_net_id.is_valid());
+
+        float crit = pre_cluster_timing_manager.calc_net_setup_criticality(atom_net_id, atom_netlist_);
+
+        // When optimizing for WL, the net weights are just set to 1 (meaning
+        // that we want to minimize the WL of nets).
+        // When optimizing for timing, the net weights are set to the timing
+        // criticality, which is based on the lowest slack of any edge belonging
+        // to this net.
+        // The intuition is that we care more about shrinking the wirelength of
+        // more critical connections than less critical ones.
+        // Use the AP timing trade-off term to linearly interpolate between these
+        // weighting terms.
+        net_weights_[net_id] = ap_timing_tradeoff_ * crit + (1.0f - ap_timing_tradeoff_);
     }
 }
 
@@ -225,7 +269,11 @@ static inline void add_connection_to_system(size_t src_row_id,
 void QPHybridSolver::init_linear_system() {
     // Count the number of star nodes that the netlist will have.
     size_t num_star_nodes = 0;
+    unsigned num_nets = 0;
     for (APNetId net_id : netlist_.nets()) {
+        if (netlist_.net_is_ignored(net_id))
+            continue;
+        num_nets++;
         if (netlist_.net_pins(net_id).size() > star_num_pins_threshold)
             num_star_nodes++;
     }
@@ -248,13 +296,14 @@ void QPHybridSolver::init_linear_system() {
     // TODO: This can be made more space-efficient by getting the average fanout
     //       of all nets in the APNetlist. Ideally this should be not enough
     //       space, but be within a constant factor.
-    size_t num_nets = netlist_.nets().size();
     tripletList.reserve(num_nets);
 
     // Create the connections using a hybrid connection model of the star and
     // clique connnection models.
     size_t star_node_offset = 0;
     for (APNetId net_id : netlist_.nets()) {
+        if (netlist_.net_is_ignored(net_id))
+            continue;
         size_t num_pins = netlist_.net_pins(net_id).size();
         VTR_ASSERT_DEBUG(num_pins > 1);
 
@@ -378,6 +427,15 @@ void QPHybridSolver::solve(unsigned iteration, PartialPlacement& p_placement) {
     // solution to the zero vector if we do not set it to the guess directly.
     if (iteration == 0 && num_fixed_blocks_ == 0) {
         store_solution_into_placement(guess_x, guess_y, p_placement);
+
+        // Store disconnected blocks into solution at the center of the device
+        for (APBlockId blk_id : disconnected_blocks_) {
+            // All disconnected blocks should not have row IDs or be fixed blocks.
+            VTR_ASSERT_SAFE(!blk_id_to_row_id_[blk_id].is_valid() && netlist_.block_mobility(blk_id) != APBlockMobility::FIXED);
+            p_placement.block_x_locs[blk_id] = device_grid_width_ / 2.0f;
+            p_placement.block_y_locs[blk_id] = device_grid_height_ / 2.0f;
+        }
+
         return;
     }
 
@@ -415,6 +473,18 @@ void QPHybridSolver::solve(unsigned iteration, PartialPlacement& p_placement) {
 
     // Write the results back into the partial placement object.
     store_solution_into_placement(x, y, p_placement);
+
+    // In the very first iteration, the solver must provide a location for all
+    // of the blocks. The disconnected blocks will not be given a placement by
+    // the solver above. Just put them in the middle of the device and let the
+    // legalizer find good places for them. In future iterations, the prior
+    // position of these blocks will already be in the p_placement object.
+    if (iteration == 0) {
+        for (APBlockId blk_id : disconnected_blocks_) {
+            p_placement.block_x_locs[blk_id] = device_grid_width_ / 2.0;
+            p_placement.block_y_locs[blk_id] = device_grid_height_ / 2.0;
+        }
+    }
 
     // Update the guess. The guess for the next iteration is the solution in
     // this iteration.
@@ -471,9 +541,8 @@ void B2BSolver::solve(unsigned iteration, PartialPlacement& p_placement) {
         //       tile location for each AP block. The center is just an
         //       approximation.
         if (num_fixed_blocks_ == 0) {
-            for (size_t row_id_idx = 0; row_id_idx < num_moveable_blocks_; row_id_idx++) {
-                APRowId row_id = APRowId(row_id_idx);
-                APBlockId blk_id = row_id_to_blk_id_[row_id];
+            for (APBlockId blk_id : netlist_.blocks()) {
+                VTR_ASSERT_SAFE(netlist_.block_mobility(blk_id) != APBlockMobility::FIXED);
                 p_placement.block_x_locs[blk_id] = device_grid_width_ / 2.0;
                 p_placement.block_y_locs[blk_id] = device_grid_height_ / 2.0;
             }
@@ -532,6 +601,13 @@ void B2BSolver::initialize_placement_least_dense(PartialPlacement& p_placement) 
             p_placement.block_x_locs[blk_id] = c * gap;
             p_placement.block_y_locs[blk_id] = r * gap;
         }
+    }
+
+    // Any blocks which are disconnected can be put anywhere. Just put them at
+    // the center of the device for now.
+    for (APBlockId blk_id : disconnected_blocks_) {
+        p_placement.block_x_locs[blk_id] = device_grid_width_ / 2.0;
+        p_placement.block_y_locs[blk_id] = device_grid_height_ / 2.0;
     }
 }
 
@@ -627,6 +703,24 @@ void B2BSolver::b2b_solve_loop(unsigned iteration, PartialPlacement& p_placement
         // Update the guesses with the most recent answer
         x_guess = x;
         y_guess = y;
+    }
+
+    // Disconnected blocks are not optimized by the solver.
+    if (iteration == 0) {
+        // In the first iteration of GP, just place the disconnected blocks at the
+        // center of the device. The legalizer will find a good place to put
+        // them.
+        for (APBlockId blk_id : disconnected_blocks_) {
+            p_placement.block_x_locs[blk_id] = device_grid_width_ / 2.0;
+            p_placement.block_y_locs[blk_id] = device_grid_height_ / 2.0;
+        }
+    } else {
+        // If a legalized solution is available (after the first iteration of GP), then
+        // set the disconnected blocks to their legalized position.
+        for (APBlockId blk_id : disconnected_blocks_) {
+            p_placement.block_x_locs[blk_id] = block_x_locs_legalized[blk_id];
+            p_placement.block_y_locs[blk_id] = block_y_locs_legalized[blk_id];
+        }
     }
 }
 
@@ -765,13 +859,15 @@ void B2BSolver::init_linear_system(PartialPlacement& p_placement) {
 
     // Create triplet lists to store the sparse positions to update and reserve
     // space for them.
-    size_t num_nets = netlist_.nets().size();
+    size_t total_num_pins_in_netlist = netlist_.pins().size();
     std::vector<Eigen::Triplet<double>> triplet_list_x;
-    triplet_list_x.reserve(num_nets);
+    triplet_list_x.reserve(total_num_pins_in_netlist);
     std::vector<Eigen::Triplet<double>> triplet_list_y;
-    triplet_list_y.reserve(num_nets);
+    triplet_list_y.reserve(total_num_pins_in_netlist);
 
     for (APNetId net_id : netlist_.nets()) {
+        if (netlist_.net_is_ignored(net_id))
+            continue;
         size_t num_pins = netlist_.net_pins(net_id).size();
         VTR_ASSERT_SAFE_MSG(num_pins > 1, "net must have at least 2 pins");
 

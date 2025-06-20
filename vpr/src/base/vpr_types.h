@@ -411,6 +411,13 @@ struct t_net_power {
 /**
  * @brief Stores a 3D bounding box in terms of the minimum and
  *        maximum coordinates: x, y, layer
+ * 
+ * @var xmin: The minimum x-coordinate of the bounding box
+ * @var xmax: The maximum x-coordinate of the bounding box
+ * @var ymin: The minimum y-coordinate of the bounding box
+ * @var ymax: The maximum y-coordinate of the bounding box
+ * @var layer_min: The minimum layer of the bounding box
+ * @var layer_max: The maximum layer of the bounding box
  */
 struct t_bb {
     t_bb() = default;
@@ -1098,6 +1105,12 @@ struct t_placer_opts {
  *   @param ap_timing_tradeoff
  *              A trade-off parameter used to decide how focused the AP flow
  *              should be on optimizing timing over wirelength.
+ *   @param ap_high_fanout_threshold;
+ *              The threshold to ignore nets with higher fanout than that
+ *              value while constructing the solver.
+ *   @param ap_partial_legalizer_target_density
+ *              Vector of strings passed by the user to configure the target
+ *              density of different physical tiles on the device.
  *   @param appack_max_dist_th
  *              Array of string passed by the user to configure the max candidate
  *              distance thresholds.
@@ -1106,6 +1119,8 @@ struct t_placer_opts {
  *   @param log_verbosity
  *              The verbosity level of log messages in the AP flow, with higher
  *              values leading to more verbose messages.
+ *   @param generate_mass_report
+ *              Whether to generate a mass report during global placement or not.
  */
 struct t_ap_opts {
     e_stage_action doAP;
@@ -1120,11 +1135,17 @@ struct t_ap_opts {
 
     float ap_timing_tradeoff;
 
+    int ap_high_fanout_threshold;
+
+    std::vector<std::string> ap_partial_legalizer_target_density;
+
     std::vector<std::string> appack_max_dist_th;
 
     unsigned num_threads;
 
     int log_verbosity;
+
+    bool generate_mass_report;
 };
 
 /******************************************************************
@@ -1289,6 +1310,8 @@ struct t_router_opts {
     int router_debug_sink_rr;
     int router_debug_iteration;
     e_router_lookahead lookahead_type;
+    double initial_acc_cost_chan_congestion_threshold;
+    double initial_acc_cost_chan_congestion_weight;
     int max_convergence_count;
     int route_verbosity;
     float reconvergence_cpd_threshold;
@@ -1344,6 +1367,7 @@ struct t_analysis_opts {
     bool generate_net_timing_report;
 
     e_timing_update_type timing_update_type;
+    bool skip_sync_clustering_and_routing_results;
 };
 
 /// Stores NoC specific options, when supplied as an input by the user
@@ -1421,42 +1445,6 @@ struct t_det_routing_arch {
 constexpr bool is_pin(e_rr_type type) { return (type == e_rr_type::IPIN || type == e_rr_type::OPIN); }
 constexpr bool is_chan(e_rr_type type) { return (type == e_rr_type::CHANX || type == e_rr_type::CHANY); }
 constexpr bool is_src_sink(e_rr_type type) { return (type == e_rr_type::SOURCE || type == e_rr_type::SINK); }
-
-/**
- * @brief Extra information about each rr_node needed only during routing
- *        (i.e. during the maze expansion).
- *
- *   @param prev_edge  ID of the edge (globally unique edge ID in the RR Graph)
- *                     that was used to reach this node from the previous node.
- *                     If there is no predecessor, prev_edge = NO_PREVIOUS.
- *   @param acc_cost   Accumulated cost term from previous Pathfinder iterations.
- *   @param path_cost  Total cost of the path up to and including this node +
- *                     the expected cost to the target if the timing_driven router
- *                     is being used.
- *   @param backward_path_cost  Total cost of the path up to and including this
- *                     node.
- *   @param R_upstream Upstream resistance to ground from this node in the current
- *                     path search (connection routing), including the resistance
- *                     of the node itself (device_ctx.rr_nodes[index].R).
- *   @param occ        The current occupancy of the associated rr node.
- */
-struct t_rr_node_route_inf {
-    RREdgeId prev_edge;
-
-    float acc_cost;
-    float path_cost;
-    float backward_path_cost;
-    float R_upstream;
-
-  public: //Accessors
-    short occ() const { return occ_; }
-
-  public: //Mutators
-    void set_occ(int new_occ) { occ_ = new_occ; }
-
-  private: //Data
-    short occ_ = 0;
-};
 
 /**
  * @brief Information about the current status of a particular

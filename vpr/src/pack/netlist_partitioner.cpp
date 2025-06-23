@@ -55,6 +55,11 @@ bool NetlistPartitioner::should_partition_mol(PackMoleculeId mol_id) {
         if (!blk_id.is_valid()) {
             continue;
         }
+
+        if(prepacker_.get_expected_lowest_cost_pb_gnode(blk_id)->pb_type->class_type == MEMORY_CLASS) {
+            return false;
+        }
+
         char* model_name = device_context_.arch->models.get_model(atom_context_.netlist().block_model(blk_id)).name;
         // TODO: magic number
         if (model_count_[model_name] >= partition_threshold) {

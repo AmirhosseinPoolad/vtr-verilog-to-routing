@@ -24,12 +24,9 @@ class NetlistPartition {
     std::unordered_map<std::string, int> model_count_;
 };
 
-// typedef std::unordered_map<PackMoleculeId, int> NetlistPartition;
-
 enum class e_partition_type {
-  SPATIAL,
-  MIN_CUT,
-  SPATIAL_MIN_CUT
+  NONE,
+  SPATIAL
 };
 
 class NetlistPartitioner {
@@ -40,7 +37,7 @@ class NetlistPartitioner {
 
   private:
     NetlistPartition get_spatial_partitioning(int num_partitions);
-    NetlistPartition get_graph_partitioning(int num_partitions, bool use_placement_info);
+    NetlistPartition get_unity_partitioning();
     bool should_partition_mol(PackMoleculeId mol_id);
 
     const Prepacker& prepacker_;

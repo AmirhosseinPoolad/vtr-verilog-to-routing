@@ -253,19 +253,14 @@ bool try_pack(const t_packer_opts& packer_opts,
 
     NetlistPartitioner partitioner(flat_placement_info, prepacker, atom_ctx, device_ctx);
 
-    e_partition_type partition_type;
-    if (flat_placement_info.valid ) {
-        packer_opts.weighted_partitioning ? partition_type = e_partition_type::SPATIAL_MIN_CUT : partition_type = e_partition_type::SPATIAL;
-    } else {
-        partition_type = e_partition_type::MIN_CUT;
-    }
+    e_partition_type partition_type = e_partition_type::NONE;
+    if (flat_placement_info.valid) partition_type = e_partition_type::SPATIAL;
 
     NetlistPartition partition_map = partitioner.get_netlist_partition(partition_type, num_partitions);
     
     std::vector<std::unique_ptr<ClusterLegalizer>> cluster_legalizers;
     std::vector<std::unique_ptr<GreedyClusterer>> clusterers;
     
-    {
     for (int i = 0; i < thread_count; i++) {
         cluster_legalizers.push_back(std::make_unique<ClusterLegalizer>(atom_ctx.netlist(),
         prepacker,
@@ -291,7 +286,6 @@ bool try_pack(const t_packer_opts& packer_opts,
             std::ref(partition_map),
             i));
     }
-    }
 
     VTR_LOG("Packing with pin utilization targets: %s\n", cluster_legalizers[0]->get_target_external_pin_util().to_string().c_str());
     VTR_LOG("Packing with high fanout thresholds: %s\n", high_fanout_thresholds.to_string().c_str());
@@ -299,7 +293,7 @@ bool try_pack(const t_packer_opts& packer_opts,
 
     g_vpr_ctx.mutable_atom().mutable_lookup().set_atom_pb_bimap_lock(true);
     #pragma omp parallel for num_threads(thread_count)
-    for (size_t partition_num = 0; partition_num < num_partitions; partition_num++) {
+    for (int partition_num = 0; partition_num < num_partitions; partition_num++) {
         int thread_num = omp_get_thread_num();
         cluster_legalizers[thread_num]->set_partition(partition_num);
         clusterers[thread_num]->set_partition(partition_num);
@@ -307,7 +301,6 @@ bool try_pack(const t_packer_opts& packer_opts,
         ClusterLegalizer& cluster_legalizer = *cluster_legalizers[thread_num];
         GreedyClusterer& clusterer = *clusterers[thread_num];
 
-        double stime = omp_get_wtime();
         bool allow_unrelated_clustering = false;
         if (packer_opts.allow_unrelated_clustering == e_unrelated_clustering::ON) {
             allow_unrelated_clustering = true;
@@ -495,6 +488,7 @@ bool try_pack(const t_packer_opts& packer_opts,
     }
 
     VTR_ASSERT(current_packer_state == e_packer_state::SUCCESS);
+}
 
     /* Packing iterative improvement can be done here */
     /*       Use the re-cluster API to edit it        */

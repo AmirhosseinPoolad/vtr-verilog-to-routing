@@ -94,4 +94,3 @@ pass_requirements_file=pass_requirements.txt
 script_params_common=-no_second_run -track_memory_usage --pack_num_partitions 16 --pack_num_threads 4
 script_params_list_add=--pack --place --route --allow_unrelated_clustering on
 script_params_list_add=--analytical_place --route --allow_unrelated_clustering on
-script_params_list_add=--analytical_place --route --allow_unrelated_clustering on --weighted_partitioning true

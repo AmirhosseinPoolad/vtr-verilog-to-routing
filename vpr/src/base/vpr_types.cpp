@@ -118,14 +118,6 @@ t_ext_pin_util_targets::t_ext_pin_util_targets(const std::vector<std::string>& s
     }
 }
 
-t_ext_pin_util_targets& t_ext_pin_util_targets::operator=(t_ext_pin_util_targets&& other) noexcept {
-    if (this != &other) {
-        defaults_ = std::move(other.defaults_);
-        overrides_ = std::move(other.overrides_);
-    }
-    return *this;
-}
-
 t_ext_pin_util t_ext_pin_util_targets::get_pin_util(std::string_view block_type_name) const {
     auto itr = overrides_.find(block_type_name);
     if (itr != overrides_.end()) {

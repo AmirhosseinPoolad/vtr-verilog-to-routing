@@ -11,7 +11,8 @@ class AttractionInfo;
 class ClusterBlockId;
 class ClusterLegalizer;
 class ClusteredNetlist;
-struct AtomContext;
+class AtomContext;
+class ClusteringManager;
 
 /**
  * @file
@@ -25,10 +26,10 @@ struct AtomContext;
 /*
  * @brief Check clustering legality and output it.
  */
-void check_and_output_clustering(const std::vector<std::unique_ptr<ClusterLegalizer>>& cluster_legalizers,
+void check_and_output_clustering(const ClusteringManager& clustering_manager,
                                  const t_packer_opts& packer_opts,
                                  const std::unordered_set<AtomNetId>& is_clock,
-                                 const t_arch* arch);
+                                 const t_arch* arch) ;
 
 /*
  * @brief Print the header for the clustering progress table.

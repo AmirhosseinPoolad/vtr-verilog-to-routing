@@ -173,7 +173,6 @@ class t_ext_pin_util_targets {
     t_ext_pin_util_targets() = default;
     t_ext_pin_util_targets(float default_in_util, float default_out_util);
     t_ext_pin_util_targets(const std::vector<std::string>& specs);
-    t_ext_pin_util_targets& operator=(t_ext_pin_util_targets&& other) noexcept;
 
     ///@brief Returns the input pin util of the specified block (or default if unspecified)
     t_ext_pin_util get_pin_util(std::string_view block_type_name) const;

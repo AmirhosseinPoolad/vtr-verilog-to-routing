@@ -277,14 +277,13 @@ class ClusterLegalizer {
     ClusterLegalizer(const AtomNetlist& atom_netlist,
                      const Prepacker& prepacker,
                      std::vector<t_lb_type_rr_node>* lb_type_rr_graphs,
-                     const std::vector<std::string>& target_external_pin_util_str,
+                     const t_ext_pin_util_targets& target_external_pin_util,
                      const t_pack_high_fanout_thresholds& high_fanout_thresholds,
                      ClusterLegalizationStrategy cluster_legalization_strategy,
                      bool enable_pin_feasibility_filter,
                      const LogicalModels& models,
                      int log_verbosity,
-                     const NetlistPartition& partition_map,
-                     int partition_num);
+                     const NetlistPartition& partition_map);
 
     // This class allocates and deallocates memory within. This class should not
     // be copied or moved to prevent it from double freeing / losing pointers.
@@ -392,13 +391,6 @@ class ClusterLegalizer {
     void clean_cluster(LegalizationClusterId cluster_id);
 
     /*
-     * @brief Verify that all atoms have been clustered into some cluster.
-     *
-     * This will not verify if all the clusters are fully legal.
-     */
-    void verify();
-
-    /*
      * @brief Finalize the clustering. Required for generating a Clustered
      *        Netlist.
      *
@@ -491,12 +483,6 @@ class ClusterLegalizer {
         return molecule_cluster_[mol_id].is_valid();
     }
 
-    /// @brief Returns a reference to the target_external_pin_util object. This
-    ///        allows the user to modify the external pin utilization if needed.
-    inline t_ext_pin_util_targets& get_target_external_pin_util() {
-        return target_external_pin_util_;
-    }
-
     /*
      * @brief Set the legalization strategy of the cluster legalizer.
      *
@@ -544,19 +530,19 @@ class ClusterLegalizer {
   private:
     /// @brief A vector of the legalization cluster IDs. If any of them are
     ///        invalid, then that means that the cluster has been destroyed.
-    vtr::vector_map<LegalizationClusterId, LegalizationClusterId> legalization_cluster_ids_; // MERGED
+    vtr::vector_map<LegalizationClusterId, LegalizationClusterId> legalization_cluster_ids_;
 
     /// @brief Lookup table for which cluster each molecule is in.
-    vtr::vector_map<PackMoleculeId, LegalizationClusterId> molecule_cluster_; // MERGED
+    vtr::vector_map<PackMoleculeId, LegalizationClusterId> molecule_cluster_;
 
     /// @brief Clustering chain information for each of the chains in the prepacker.
-    vtr::vector_map<MoleculeChainId, t_clustering_chain_info> clustering_chain_info_; // MERGED
+    vtr::vector_map<MoleculeChainId, t_clustering_chain_info> clustering_chain_info_;
 
     /// @brief List of all legalization clusters.
-    vtr::vector_map<LegalizationClusterId, LegalizationCluster> legalization_clusters_; // MERGED
+    vtr::vector_map<LegalizationClusterId, LegalizationCluster> legalization_clusters_;
 
     /// @brief A lookup-table for which cluster the given atom is packed into.
-    vtr::vector_map<AtomBlockId, LegalizationClusterId> atom_cluster_; //MERGED
+    vtr::vector_map<AtomBlockId, LegalizationClusterId> atom_cluster_;
 
     /// @brief Stores the NoC group ID of each atom block. Atom blocks that
     ///        belong to different NoC groups can't be clustered with each other
@@ -568,7 +554,7 @@ class ClusterLegalizer {
 
     /// @brief The maximum fractional utilization of cluster external
     ///        input/output pins during packing (between 0 and 1).
-    t_ext_pin_util_targets target_external_pin_util_;
+    const t_ext_pin_util_targets& target_external_pin_util_;
 
     /// @brief The max size of any molecule. This is used to allocate a dynamic
     ///        array within the legalizer, and in its current form this is a bit
@@ -616,5 +602,3 @@ class ClusterLegalizer {
     /// @brief A lookup table for the pin mapping of the intra-lb pb pins.
     IntraLbPbPinLookup intra_lb_pb_pin_lookup_;
 };
-
-void verify_clustering(std::vector<std::unique_ptr<ClusterLegalizer>>& cluster_legalizers);

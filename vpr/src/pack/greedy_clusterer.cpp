@@ -82,8 +82,7 @@ GreedyClusterer::GreedyClusterer(const t_packer_opts& packer_opts,
                                  const std::unordered_set<AtomNetId>& is_global,
                                  const PreClusterTimingManager& pre_cluster_timing_manager,
                                  const APPackContext& appack_ctx,
-                                 const NetlistPartition& netlist_partition,
-                                 int partition_num)
+                                 const NetlistPartition& netlist_partition)
     : packer_opts_(packer_opts)
     , analysis_opts_(analysis_opts)
     , atom_netlist_(atom_netlist)
@@ -97,7 +96,6 @@ GreedyClusterer::GreedyClusterer(const t_packer_opts& packer_opts,
     , log_verbosity_(packer_opts.pack_verbosity)
     , net_output_feeds_driving_block_input_(identify_net_output_feeds_driving_block_input(atom_netlist))
     , netlist_partition_(netlist_partition) {
-    partition_num_ = partition_num;
 }
 
 std::map<t_logical_block_type_ptr, size_t>

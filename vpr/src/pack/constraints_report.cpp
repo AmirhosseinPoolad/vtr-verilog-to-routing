@@ -1,28 +1,33 @@
 #include "constraints_report.h"
+#include <memory>
 #include "cluster_legalizer.h"
+#include "clustering_manager.h"
 #include "grid_tile_lookup.h"
 
 bool floorplan_constraints_regions_overfull(std::vector<PartitionRegion>& overfull_partition_regions,
-                                            const ClusterLegalizer& cluster_legalizer,
+                                            const ClusteringManager& clustering_manager,
                                             const std::vector<t_logical_block_type>& logical_block_types) {
     GridTileLookup grid_tiles;
 
     // keep record of how many blocks of each type are assigned to each PartitionRegion
     std::unordered_map<PartitionRegion, std::vector<int>> pr_count_info;
+    for(const auto& cluster_legalizer_ptr : clustering_manager.cluster_legalizers()) {
+        const ClusterLegalizer& cluster_legalizer = *cluster_legalizer_ptr;
+        
+        for (LegalizationClusterId cluster_id : cluster_legalizer.clusters()) {
+            const PartitionRegion& pr = cluster_legalizer.get_cluster_pr(cluster_id);
+            if (pr.empty())
+                continue;
 
-    for (LegalizationClusterId cluster_id : cluster_legalizer.clusters()) {
-        const PartitionRegion& pr = cluster_legalizer.get_cluster_pr(cluster_id);
-        if (pr.empty())
-            continue;
-
-        t_logical_block_type_ptr bt = cluster_legalizer.get_cluster_type(cluster_id);
-        auto got = pr_count_info.find(pr);
-        if (got == pr_count_info.end()) {
-            std::vector<int> block_type_counts(logical_block_types.size(), 0);
-            block_type_counts[bt->index]++;
-            pr_count_info.insert({pr, block_type_counts});
-        } else {
-            got->second[bt->index]++;
+            t_logical_block_type_ptr bt = cluster_legalizer.get_cluster_type(cluster_id);
+            auto got = pr_count_info.find(pr);
+            if (got == pr_count_info.end()) {
+                std::vector<int> block_type_counts(logical_block_types.size(), 0);
+                block_type_counts[bt->index]++;
+                pr_count_info.insert({pr, block_type_counts});
+            } else {
+                got->second[bt->index]++;
+            }
         }
     }
 

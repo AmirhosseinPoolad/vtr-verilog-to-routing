@@ -57,47 +57,6 @@ static void alloc_and_load_pb_stats(t_pb* pb) {
     pb->pb_stats->num_child_blocks_in_pb = 0;
 }
 
-/*
- * @brief Check the atom blocks of a cluster pb. Used in the verify method.
- */
-/* TODO: May want to check that all atom blocks are actually reached */
-static void check_cluster_atom_blocks(t_pb* pb, std::unordered_set<AtomBlockId>& blocks_checked, const AtomPBBimap& atom_pb_lookup) {
-    const AtomContext& atom_ctx = g_vpr_ctx.atom();
-
-    const t_pb_type* pb_type = pb->pb_graph_node->pb_type;
-    if (pb_type->is_primitive()) {
-        /* primitive */
-        AtomBlockId blk_id = atom_pb_lookup.pb_atom(pb);
-        if (blk_id) {
-            if (blocks_checked.count(blk_id)) {
-                VPR_FATAL_ERROR(VPR_ERROR_PACK,
-                                "pb %s contains atom block %s but atom block is already contained in another pb.\n",
-                                pb->name, atom_ctx.netlist().block_name(blk_id).c_str());
-            }
-            blocks_checked.insert(blk_id);
-            if (pb != atom_pb_lookup.atom_pb(blk_id)) {
-                VPR_FATAL_ERROR(VPR_ERROR_PACK,
-                                "pb %s contains atom block %s but atom block does not link to pb.\n",
-                                pb->name, atom_ctx.netlist().block_name(blk_id).c_str());
-            }
-        }
-    } else {
-        /* this is a container pb, all container pbs must contain children */
-        bool has_child = false;
-        for (int i = 0; i < pb_type->modes[pb->mode].num_pb_type_children; i++) {
-            for (int j = 0; j < pb_type->modes[pb->mode].pb_type_children[i].num_pb; j++) {
-                if (pb->child_pbs[i] != nullptr) {
-                    if (pb->child_pbs[i][j].name != nullptr) {
-                        has_child = true;
-                        check_cluster_atom_blocks(&pb->child_pbs[i][j], blocks_checked, atom_pb_lookup);
-                    }
-                }
-            }
-        }
-        VTR_ASSERT(has_child);
-    }
-}
-
 /// @brief Recursively frees the pb stats of the given pb, without freeing the
 ///        pb itself.
 static void free_pb_stats_recursive(t_pb* pb) {
@@ -1598,23 +1557,20 @@ bool ClusterLegalizer::check_cluster_legality(LegalizationClusterId cluster_id) 
 ClusterLegalizer::ClusterLegalizer(const AtomNetlist& atom_netlist,
                                    const Prepacker& prepacker,
                                    std::vector<t_lb_type_rr_node>* lb_type_rr_graphs,
-                                   const std::vector<std::string>& target_external_pin_util_str,
+                                   const t_ext_pin_util_targets& target_external_pin_util,
                                    const t_pack_high_fanout_thresholds& high_fanout_thresholds,
                                    ClusterLegalizationStrategy cluster_legalization_strategy,
                                    bool enable_pin_feasibility_filter,
                                    const LogicalModels& models,
                                    int log_verbosity,
-                                   const NetlistPartition& netlist_partition,
-                                   int partition_num)
-    : prepacker_(prepacker) 
+                                   const NetlistPartition& netlist_partition)
+    : 
+      target_external_pin_util_(target_external_pin_util)
+    , prepacker_(prepacker)
     , netlist_partition_(netlist_partition)
-    , partition_num_(partition_num) {
+    {
     // Verify that the inputs are valid.
     VTR_ASSERT_SAFE(lb_type_rr_graphs != nullptr);
-
-    // Get the target external pin utilization
-    // NOTE: Be careful with this constructor, it may throw a VPR_FATAL_ERROR.
-    target_external_pin_util_ = t_ext_pin_util_targets(target_external_pin_util_str);
 
     // Resize the molecule_cluster lookup to make the accesses much cheaper.
     molecule_cluster_.resize(prepacker_.molecules().size(), LegalizationClusterId::INVALID());
@@ -1650,151 +1606,6 @@ void ClusterLegalizer::reset() {
     }
     mutable_atom_pb_lookup().reset_bimap();
     compress();
-}
-
-void ClusterLegalizer::verify() {
-    std::unordered_set<AtomBlockId> atoms_checked;
-    auto& atom_ctx = g_vpr_ctx.atom();
-
-    if (clusters().size() == 0) {
-        VTR_LOG_WARN("Packing produced no clustered blocks");
-    }
-
-    /*
-     * Check that each atom block connects to one physical primitive and that the primitive links up to the parent clb
-     */
-    for (auto blk_id : atom_ctx.netlist().blocks()) {
-        //Each atom should be part of a pb
-        const t_pb* atom_pb = atom_pb_lookup().atom_pb(blk_id);
-        if (!atom_pb) {
-            VPR_FATAL_ERROR(VPR_ERROR_PACK,
-                            "Atom block %s is not mapped to a pb\n",
-                            atom_ctx.netlist().block_name(blk_id).c_str());
-        }
-
-        //Check the reverse mapping is consistent
-        if (atom_pb_lookup().pb_atom(atom_pb) != blk_id) {
-            VPR_FATAL_ERROR(VPR_ERROR_PACK,
-                            "pb %s does not contain atom block %s but atom block %s maps to pb.\n",
-                            atom_pb->name,
-                            atom_ctx.netlist().block_name(blk_id).c_str(),
-                            atom_ctx.netlist().block_name(blk_id).c_str());
-        }
-
-        VTR_ASSERT(atom_ctx.netlist().block_name(blk_id) == atom_pb->name);
-
-        const t_pb* cur_pb = atom_pb;
-        while (cur_pb->parent_pb) {
-            cur_pb = cur_pb->parent_pb;
-            VTR_ASSERT(cur_pb->name);
-        }
-
-        LegalizationClusterId cluster_id = get_atom_cluster(blk_id);
-        if (cluster_id == LegalizationClusterId::INVALID()) {
-            VPR_FATAL_ERROR(VPR_ERROR_PACK,
-                            "Atom %s is not mapped to a CLB\n",
-                            atom_ctx.netlist().block_name(blk_id).c_str());
-        }
-
-        if (cur_pb != get_cluster_pb(cluster_id)) {
-            VPR_FATAL_ERROR(VPR_ERROR_PACK,
-                            "CLB %s does not match CLB contained by pb %s.\n",
-                            cur_pb->name, atom_pb->name);
-        }
-    }
-
-    /* Check that I do not have spurious links in children pbs */
-    for (LegalizationClusterId cluster_id : clusters()) {
-        if (!cluster_id.is_valid())
-            continue;
-        check_cluster_atom_blocks(get_cluster_pb(cluster_id), atoms_checked, atom_pb_lookup());
-    }
-
-    for (auto blk_id : atom_ctx.netlist().blocks()) {
-        if (!atoms_checked.count(blk_id)) {
-            VPR_FATAL_ERROR(VPR_ERROR_PACK,
-                            "Atom block %s not found in any cluster.\n",
-                            atom_ctx.netlist().block_name(blk_id).c_str());
-        }
-    }
-}
-
-void verify_clustering(std::vector<std::unique_ptr<ClusterLegalizer>>& cluster_legalizers) {
-    std::unordered_set<AtomBlockId> atoms_checked;
-    auto& atom_ctx = g_vpr_ctx.atom();
-    for (auto& cluster_legalizer_ptr : cluster_legalizers) {
-        if (cluster_legalizer_ptr->clusters().size() == 0) {
-            VTR_LOG_WARN("Packing produced no clustered blocks");
-        }
-    }
-    /*
-     * Check that each atom block connects to one physical primitive and that the primitive links up to the parent clb
-     */
-    for (auto blk_id : atom_ctx.netlist().blocks()) {
-        //Each atom should be part of a pb
-        const t_pb* atom_pb = nullptr; // = atom_pb_lookup().atom_pb(blk_id);
-        size_t chosen_index = -1;
-        for(size_t i = 0; i < cluster_legalizers.size(); i++) {
-            auto pb = cluster_legalizers[i]->atom_pb_lookup().atom_pb(blk_id);
-            if(pb != nullptr) {
-                VTR_ASSERT_MSG(atom_pb == nullptr, "Atom is packed in two different clusterlegalizers");
-                atom_pb = pb;
-                chosen_index = i;
-            }
-        }
-        if (!atom_pb) {
-            VPR_FATAL_ERROR(VPR_ERROR_PACK,
-                            "Atom block %s with ID %d is not mapped to a pb\n",
-                            atom_ctx.netlist().block_name(blk_id).c_str(), (int)blk_id);
-        }
-
-        //Check the reverse mapping is consistent
-        if (cluster_legalizers[chosen_index]->atom_pb_lookup().pb_atom(atom_pb) != blk_id) {
-            VPR_FATAL_ERROR(VPR_ERROR_PACK,
-                            "pb %s does not contain atom block %s but atom block %s maps to pb.\n",
-                            atom_pb->name,
-                            atom_ctx.netlist().block_name(blk_id).c_str(),
-                            atom_ctx.netlist().block_name(blk_id).c_str());
-        }
-
-        VTR_ASSERT(atom_ctx.netlist().block_name(blk_id) == atom_pb->name);
-
-        const t_pb* cur_pb = atom_pb;
-        while (cur_pb->parent_pb) {
-            cur_pb = cur_pb->parent_pb;
-            VTR_ASSERT(cur_pb->name);
-        }
-
-        LegalizationClusterId cluster_id = cluster_legalizers[chosen_index]->get_atom_cluster(blk_id);
-        if (cluster_id == LegalizationClusterId::INVALID()) {
-            VPR_FATAL_ERROR(VPR_ERROR_PACK,
-                            "Atom %s is not mapped to a CLB\n",
-                            atom_ctx.netlist().block_name(blk_id).c_str());
-        }
-
-        if (cur_pb != cluster_legalizers[chosen_index]->get_cluster_pb(cluster_id)) {
-            VPR_FATAL_ERROR(VPR_ERROR_PACK,
-                            "CLB %s does not match CLB contained by pb %s.\n",
-                            cur_pb->name, atom_pb->name);
-        }
-    }
-
-    /* Check that I do not have spurious links in children pbs */
-    for(size_t i = 0; i < cluster_legalizers.size(); i++) {
-        for (LegalizationClusterId cluster_id : cluster_legalizers[i]->clusters()) {
-            if (!cluster_id.is_valid())
-                continue;
-            check_cluster_atom_blocks(cluster_legalizers[i]->get_cluster_pb(cluster_id), atoms_checked, cluster_legalizers[i]->atom_pb_lookup());
-        }
-    }
-
-    for (auto blk_id : atom_ctx.netlist().blocks()) {
-        if (!atoms_checked.count(blk_id)) {
-            VPR_FATAL_ERROR(VPR_ERROR_PACK,
-                            "Atom block %s not found in any cluster.\n",
-                            atom_ctx.netlist().block_name(blk_id).c_str());
-        }
-    }
 }
 
 bool ClusterLegalizer::is_molecule_compatible(PackMoleculeId molecule_id,

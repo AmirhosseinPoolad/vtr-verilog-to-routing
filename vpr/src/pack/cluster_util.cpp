@@ -1,21 +1,27 @@
 #include "cluster_util.h"
 #include <algorithm>
+#include <memory>
 #include <unordered_set>
+#include <utility>
 
 #include "atom_netlist.h"
+#include "atom_netlist_fwd.h"
 #include "attraction_groups.h"
 #include "cluster_legalizer.h"
 #include "clustered_netlist.h"
+#include "clustered_netlist_fwd.h"
+#include "clustering_manager.h"
 #include "echo_files.h"
 #include "globals.h"
 #include "logic_types.h"
 #include "output_clustering.h"
 #include "prepack.h"
 #include "vpr_context.h"
+#include "vtr_assert.h"
 #include "vtr_vector.h"
 
 /*Print the contents of each cluster to an echo file*/
-static void echo_clusters(char* filename, const ClusterLegalizer& cluster_legalizer) {
+static void echo_clusters(char* filename, const ClusteringManager& clustering_manager) {
     FILE* fp;
     fp = vtr::fopen(filename, "w");
 
@@ -26,21 +32,26 @@ static void echo_clusters(char* filename, const ClusterLegalizer& cluster_legali
 
     auto& atom_ctx = g_vpr_ctx.atom();
 
-    std::map<LegalizationClusterId, std::vector<AtomBlockId>> cluster_atoms;
-
-    for (LegalizationClusterId cluster_id : cluster_legalizer.clusters()) {
-        cluster_atoms.insert({cluster_id, std::vector<AtomBlockId>()});
+    std::map<std::pair<LegalizationClusterId, const ClusterLegalizer&>, std::vector<AtomBlockId>> cluster_atoms;
+    
+    for(const std::unique_ptr<ClusterLegalizer>& cluster_legalizer_ptr : clustering_manager.cluster_legalizers()) {
+        for (LegalizationClusterId cluster_id : cluster_legalizer_ptr->clusters()) {
+        cluster_atoms.insert({{cluster_id, *cluster_legalizer_ptr}, std::vector<AtomBlockId>()});
+        }
     }
 
-    for (auto atom_blk_id : atom_ctx.netlist().blocks()) {
+    for (AtomBlockId atom_blk_id : atom_ctx.netlist().blocks()) {
+        auto [cluster_legalizer, is_found] = clustering_manager.get_atom_cluster_legalizer(atom_blk_id);
+        VTR_ASSERT(is_found);
         LegalizationClusterId cluster_id = cluster_legalizer.get_atom_cluster(atom_blk_id);
 
-        cluster_atoms[cluster_id].push_back(atom_blk_id);
+        cluster_atoms[{cluster_id, cluster_legalizer}].push_back(atom_blk_id);
     }
 
     for (auto& cluster_atom : cluster_atoms) {
-        const std::string& cluster_name = cluster_legalizer.get_cluster_pb(cluster_atom.first)->name;
-        fprintf(fp, "Cluster %s Id: %zu \n", cluster_name.c_str(), size_t(cluster_atom.first));
+        const ClusterLegalizer& cluster_legalizer = cluster_atom.first.second;
+        const std::string& cluster_name = cluster_legalizer.get_cluster_pb(cluster_atom.first.first)->name;
+        fprintf(fp, "Cluster %s Id: %zu \n", cluster_name.c_str(), size_t(cluster_atom.first.first));
         fprintf(fp, "\tAtoms in cluster: \n");
 
         int num_atoms = cluster_atom.second.size();
@@ -52,13 +63,14 @@ static void echo_clusters(char* filename, const ClusterLegalizer& cluster_legali
     }
 
     fprintf(fp, "\nCluster Floorplanning Constraints:\n");
-
-    for (LegalizationClusterId cluster_id : cluster_legalizer.clusters()) {
-        const std::vector<Region>& regions = cluster_legalizer.get_cluster_pr(cluster_id).get_regions();
-        if (!regions.empty()) {
-            fprintf(fp, "\nRegions in Cluster %zu:\n", size_t(cluster_id));
-            for (const auto& region : regions) {
-                print_region(fp, region);
+    for(const std::unique_ptr<ClusterLegalizer>& cluster_legalizer_ptr : clustering_manager.cluster_legalizers()) {
+        for (LegalizationClusterId cluster_id : cluster_legalizer_ptr->clusters()) {
+            const std::vector<Region>& regions = cluster_legalizer_ptr->get_cluster_pr(cluster_id).get_regions();
+            if (!regions.empty()) {
+                fprintf(fp, "\nRegions in Cluster %zu:\n", size_t(cluster_id));
+                for (const auto& region : regions) {
+                    print_region(fp, region);
+                }
             }
         }
     }
@@ -66,17 +78,17 @@ static void echo_clusters(char* filename, const ClusterLegalizer& cluster_legali
     fclose(fp);
 }
 
-void check_and_output_clustering(const std::vector<std::unique_ptr<ClusterLegalizer>>& cluster_legalizers,
+void check_and_output_clustering(const ClusteringManager& clustering_manager,
                                  const t_packer_opts& packer_opts,
                                  const std::unordered_set<AtomNetId>& is_clock,
                                  const t_arch* arch) {
-    // cluster_legalizer.verify();
+    clustering_manager.verify_clustering();
 
-    // if (getEchoEnabled() && isEchoFileEnabled(E_ECHO_CLUSTERS)) {
-    //     echo_clusters(getEchoFileName(E_ECHO_CLUSTERS), cluster_legalizer);
-    // }
+    if (getEchoEnabled() && isEchoFileEnabled(E_ECHO_CLUSTERS)) {
+        echo_clusters(getEchoFileName(E_ECHO_CLUSTERS), clustering_manager);
+    }
 
-    output_clustering(cluster_legalizers,
+    output_clustering(clustering_manager,
                       is_clock,
                       arch->architecture_id,
                       packer_opts.output_file.c_str(),
@@ -91,6 +103,7 @@ void print_pack_status_header() {
     VTR_LOG("-------------------   --------------------------   ---------\n");
 }
 
+// TODO: Parallel
 void print_pack_status(int tot_num_molecules,
                        int num_molecules_processed,
                        int& mols_since_last_print,

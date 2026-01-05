@@ -216,6 +216,11 @@ class DeviceGrid {
     /// of those functions might look something like this: {{}} which is technically not empty.
     bool has_interposer_cuts() const;
 
+    /**
+     * @brief Returns if two locations loc_a and loc_b are on the same die, usable on 2D, 2.5D and 3D architectures.
+     */
+    bool are_locs_on_same_die(t_physical_tile_loc loc_a, t_physical_tile_loc loc_b) const;
+
   private:
     /// @brief Counts the number of each tile type on each layer and store it in instance_counts_.
     /// It is called in the constructor.
@@ -246,4 +251,6 @@ class DeviceGrid {
     /// i.e. x value of the tile column just to the left each cut
     /// Accessed as [layer][cut_idx]
     std::vector<std::vector<int>> vertical_interposer_cuts_;
+
+    std::vector<vtr::NdMatrix<int, 2>> interposer_id_matrix_; // used for macro legality checking (maybe should be in device_grid tbh)
 };

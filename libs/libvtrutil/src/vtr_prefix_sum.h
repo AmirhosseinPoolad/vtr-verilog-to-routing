@@ -7,6 +7,7 @@
  *          sums over regions of an unchanging grid of values.
  */
 
+#include <cstddef>
 #include <functional>
 #include <vector>
 #include "vtr_assert.h"
@@ -276,6 +277,26 @@ class PrefixSum2D {
     /// @brief Checks if the prefix sum is initialized or it is empty.
     bool empty() const {
         return prefix_sum_.empty();
+    }
+
+    /// expensive yadda yadda
+    vtr::NdMatrix<T, 2> to_matrix(bool include_zeros_row_and_col = false) const {
+        if (include_zeros_row_and_col) {
+            return prefix_sum_;
+        } else {
+            size_t x_size = prefix_sum_.dim_size(0) - 1;
+            size_t y_size = prefix_sum_.dim_size(1) - 1;
+
+            vtr::NdMatrix<T, 2> prefix_sum_matrix({x_size, y_size});
+
+            for (size_t i = 1; i <= x_size; i++) {
+                for (size_t j = 1; j <= y_size; j++) {
+                    prefix_sum_matrix[i-1][j-1] = prefix_sum_[i][j];
+                }
+            }
+
+            return prefix_sum_matrix;
+        }
     }
 
   private:

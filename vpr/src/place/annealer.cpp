@@ -4,8 +4,11 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <unordered_set>
 
+#include "clustered_netlist_fwd.h"
 #include "globals.h"
+#include "move_transactions.h"
 #include "place_macro.h"
 #include "vpr_context.h"
 #include "vpr_error.h"

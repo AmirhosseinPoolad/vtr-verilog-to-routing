@@ -1,10 +1,16 @@
 #include "move_utils.h"
+#include <algorithm>
+#include <cstddef>
 
+#include "device_grid.h"
 #include "move_transactions.h"
 #include "globals.h"
 
 #include "physical_types_util.h"
 #include "place_macro.h"
+#include "vpr_types.h"
+#include "vtr_assert.h"
+#include "vtr_log.h"
 #include "vtr_random.h"
 
 #include "place_constraints.h"
@@ -119,7 +125,7 @@ e_block_move_result find_affected_blocks(t_pl_blocks_to_be_moved& blocks_affecte
             outcome = e_block_move_result::INVERT;
         } else {
             // This is not a macro - I could use the from and to info from before
-            outcome = record_single_block_swap(blocks_affected, b_from, to, blk_loc_registry);
+            outcome = record_single_block_swap(blocks_affected, b_from, to, blk_loc_registry, place_macros);
         }
 
     } // Finish handling cases for blocks in macro and otherwise
@@ -130,7 +136,8 @@ e_block_move_result find_affected_blocks(t_pl_blocks_to_be_moved& blocks_affecte
 e_block_move_result record_single_block_swap(t_pl_blocks_to_be_moved& blocks_affected,
                                              ClusterBlockId b_from,
                                              t_pl_loc to,
-                                             const BlkLocRegistry& blk_loc_registry) {
+                                             const BlkLocRegistry& blk_loc_registry,
+                                             const PlaceMacros& place_macros) {
     /* Find all the blocks affected when b_from is swapped with b_to.
      * Returns abort_swap.                  */
     VTR_ASSERT_SAFE(b_from);
@@ -156,7 +163,7 @@ e_block_move_result record_single_block_swap(t_pl_blocks_to_be_moved& blocks_aff
         outcome = blocks_affected.record_block_move(b_from, to, blk_loc_registry);
     } else {
         // Check whether block to is compatible with from location
-        if (!(is_legal_swap_to_location(b_to, curr_from, blk_loc_registry)) || block_locs[b_to].is_fixed) {
+        if (!(is_legal_swap_to_location(b_to, curr_from, blk_loc_registry, place_macros)) || block_locs[b_to].is_fixed) {
             return e_block_move_result::ABORT;
         }
 
@@ -205,7 +212,7 @@ e_block_move_result record_macro_swaps(t_pl_blocks_to_be_moved& blocks_affected,
         //
         //Note that we need to explicitly check that the types match, since the device floorplan is not
         //(necessarily) translationally invariant for an arbitrary macro
-        if (!is_legal_swap_to_location(curr_b_from, curr_to, blk_loc_registry)) {
+        if (!is_legal_swap_to_location(curr_b_from, curr_to, blk_loc_registry, place_macros)) {
             blocks_affected.move_abortion_logger.log_move_abort("macro_from swap to location illegal");
             outcome = e_block_move_result::ABORT;
         } else {
@@ -228,10 +235,11 @@ e_block_move_result record_macro_swaps(t_pl_blocks_to_be_moved& blocks_affected,
                 }
             } else {
                 //To block is not a macro
-                outcome = record_single_block_swap(blocks_affected, curr_b_from, curr_to, blk_loc_registry);
+                outcome = record_single_block_swap(blocks_affected, curr_b_from, curr_to, blk_loc_registry, place_macros);
             }
         }
     } // Finish going through all the blocks in the macro
+
     return outcome;
 }
 
@@ -310,17 +318,17 @@ e_block_move_result record_macro_macro_swaps(t_pl_blocks_to_be_moved& blocks_aff
 
         // Check whether block to is compatible with from location
         if (b_to != ClusterBlockId::INVALID()) {
-            if (!(is_legal_swap_to_location(b_to, curr_from, blk_loc_registry))) {
+            if (!(is_legal_swap_to_location(b_to, curr_from, blk_loc_registry, pl_macros))) {
                 return e_block_move_result::ABORT;
             }
         }
 
-        if (!is_legal_swap_to_location(b_from, curr_to, blk_loc_registry)) {
+        if (!is_legal_swap_to_location(b_from, curr_to, blk_loc_registry, pl_macros)) {
             blocks_affected.move_abortion_logger.log_move_abort("macro_from swap to location illegal");
             return e_block_move_result::ABORT;
         }
 
-        auto outcome = record_single_block_swap(blocks_affected, b_from, curr_to, blk_loc_registry);
+        auto outcome = record_single_block_swap(blocks_affected, b_from, curr_to, blk_loc_registry, pl_macros);
         if (outcome != e_block_move_result::VALID) {
             return outcome;
         }
@@ -357,7 +365,7 @@ e_block_move_result record_macro_move(t_pl_blocks_to_be_moved& blocks_affected,
 
         t_pl_loc to = from + swap_offset;
 
-        if (!is_legal_swap_to_location(member.blk_index, to, blk_loc_registry)) {
+        if (!is_legal_swap_to_location(member.blk_index, to, blk_loc_registry, place_macros)) {
             blocks_affected.move_abortion_logger.log_move_abort("macro move to location illegal");
             return e_block_move_result::ABORT;
         }
@@ -394,7 +402,7 @@ e_block_move_result identify_macro_self_swap_affected_macros(std::vector<int>& m
         t_pl_loc from = block_locs[blk].loc;
         t_pl_loc to = from + swap_offset;
 
-        if (!is_legal_swap_to_location(blk, to, blk_loc_registry)) {
+        if (!is_legal_swap_to_location(blk, to, blk_loc_registry, place_macros)) {
             move_abortion_logger.log_move_abort("macro move to location illegal");
             return e_block_move_result::ABORT;
         }
@@ -473,11 +481,13 @@ e_block_move_result record_macro_self_swaps(t_pl_blocks_to_be_moved& blocks_affe
 
 bool is_legal_swap_to_location(ClusterBlockId blk,
                                t_pl_loc to,
-                               const BlkLocRegistry& blk_loc_registry) {
+                               const BlkLocRegistry& blk_loc_registry,
+                               const PlaceMacros& place_macros) {
     //Make sure that the swap_to location is valid
     //It must be:
-    // * on chip, and
+    // * on chip
     // * match the correct block type
+    // * if blk is part of a macro, the entirety of the macro should reside in a single die (for 2.5D and 3D architectures)
     //
     //Note that we need to explicitly check that the types match, since the device floorplan is not
     //(necessarily) translationally invariant for an arbitrary macro
@@ -505,6 +515,28 @@ bool is_legal_swap_to_location(ClusterBlockId blk,
     if (b_to) {
         if (block_locs[b_to].is_fixed) {
             return false;
+        }
+    }
+
+    // Check if block is part of a macro and check its legality
+    // This check only has to be done for 2.5D architectures to make sure macros don't cross interposer wires
+    int macro_id = place_macros.get_imacro_from_iblk(blk);
+    if (macro_id != UNDEFINED && device_ctx.grid.has_interposer_cuts()) {
+        const t_pl_macro& macro = place_macros.macros()[macro_id];
+
+        auto blk_in_macro = std::ranges::find(macro.members, blk, [](const t_pl_macro_member& pl_mem) { return pl_mem.blk_index; });
+        VTR_ASSERT_SAFE(blk_in_macro != macro.members.end());
+        t_pl_loc head_to_pos = to - blk_in_macro->offset;
+
+        for (const t_pl_macro_member& macro_member : macro.members) {
+            t_pl_loc member_to_pos = head_to_pos + macro_member.offset;
+
+            bool same_die = device_ctx.grid.are_locs_on_same_die({head_to_pos.x, head_to_pos.y, head_to_pos.layer},
+                                                                 {member_to_pos.x, member_to_pos.y, member_to_pos.layer});
+
+            if (!same_die) {
+                return false;
+            }
         }
     }
 

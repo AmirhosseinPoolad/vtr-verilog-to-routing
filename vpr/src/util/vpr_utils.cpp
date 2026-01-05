@@ -21,6 +21,8 @@
 #include "device_grid.h"
 #include "user_route_constraints.h"
 #include "grid_block.h"
+#include "vtr_ndmatrix.h"
+#include "vtr_prefix_sum.h"
 
 /* This module contains subroutines that are used in several unrelated parts *
  * of VPR.  They are VPR-specific utility routines.                          */
@@ -2014,4 +2016,16 @@ int PortPinToBlockPinConverter::get_blk_pin_from_port_pin(int blk_type_index, in
     // Return the port and port_pin for the pin.
     int blk_pin = blk_pin_from_port_pin_[blk_type_index][sub_tile][port][port_pin];
     return blk_pin;
+}
+
+bool is_on_same_side(int loc_a, int loc_b, int loc_c) {
+    int a_delta = loc_a - loc_c;
+    int b_delta = loc_b - loc_c;
+
+    // Same sign means that both sink and source are on the same side of this cut
+    if ((a_delta <= 0 && b_delta <= 0) || (a_delta > 0 && b_delta > 0)) {
+        return true;
+    } else {
+        return false;
+    }
 }

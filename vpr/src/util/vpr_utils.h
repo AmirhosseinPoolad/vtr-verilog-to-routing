@@ -5,6 +5,7 @@
 #include "device_grid.h"
 #include "rr_graph_utils.h"
 #include "vpr_types.h"
+#include "vtr_prefix_sum.h"
 #include "vtr_vector.h"
 #include "atom_pb_bimap.h"
 #include <list>
@@ -384,3 +385,16 @@ class PortPinToBlockPinConverter {
      */
     std::vector<std::vector<std::vector<std::vector<int>>>> blk_pin_from_port_pin_;
 };
+
+/**
+ * @brief Checks if loc_a and loc_b are on the same side of loc_c on the number line.
+ * All numbers in interval (-inf, loc_c] are on the same side and all numbers in interval (loc_c, +inf) are on the same side.
+ *
+ * Examples:
+ * is_on_same_side(1, 3, 4) == true
+ * is_on_same_side(1, 4, 4) == true
+ * is_on_same_side(1, 5, 4) == false
+ * is_on_same_side(6, 100, 4) == true
+ * 
+ */
+bool is_on_same_side(int loc_a, int loc_b, int loc_c);

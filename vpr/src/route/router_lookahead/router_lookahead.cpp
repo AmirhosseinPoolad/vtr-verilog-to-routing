@@ -1,12 +1,15 @@
 #include "router_lookahead.h"
+#include <memory>
 
 #include "connection_router_interface.h"
+#include "router_lookahead_dh.h"
 #include "router_lookahead_map.h"
 #include "router_lookahead_compressed_map.h"
 #include "router_lookahead_extended_map.h"
 #include "router_lookahead_simple.h"
 #include "vpr_error.h"
 #include "globals.h"
+#include "vpr_types.h"
 
 /**
  * Assuming inode is CHANX or CHANY, this function calculates the number of required wires of the same type as inode
@@ -36,6 +39,8 @@ static std::unique_ptr<RouterLookahead> make_router_lookahead_object(const t_det
         return std::make_unique<SimpleLookahead>();
     } else if (router_lookahead_type == e_router_lookahead::NO_OP) {
         return std::make_unique<NoOpLookahead>();
+    } else if (router_lookahead_type == e_router_lookahead::DIFFERENTIAL_LOOKAHEAD) {
+        return std::make_unique<DifferentialLookahead>(det_routing_arch, is_flat, route_verbosity);
     }
 
     VPR_FATAL_ERROR(VPR_ERROR_ROUTE, "Unrecognized router lookahead type");

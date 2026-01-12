@@ -110,7 +110,9 @@ enum class e_router_lookahead {
     ///@brief Simple distance-based lookahead
     SIMPLE,
     ///@brief A no-operation lookahead which always returns zero
-    NO_OP
+    NO_OP,
+    ///@brief A lookahead based on the Differential Heuristic
+    DIFFERENTIAL_LOOKAHEAD
 };
 
 enum class e_route_bb_update {

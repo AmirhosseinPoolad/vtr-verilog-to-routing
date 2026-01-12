@@ -29,7 +29,7 @@ class MapLookahead : public RouterLookahead {
     int route_verbosity_;
     bool has_interposer_cuts_;
 
-  protected:
+  public:
     float get_expected_cost(RRNodeId current_node, RRNodeId target_node, const t_conn_cost_params& params, float R_upstream) const override;
     std::pair<float, float> get_expected_delay_and_cong(RRNodeId from_node, RRNodeId to_node, const t_conn_cost_params& params, float R_upstream) const override;
 

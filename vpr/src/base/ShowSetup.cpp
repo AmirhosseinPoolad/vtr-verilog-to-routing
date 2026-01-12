@@ -442,6 +442,9 @@ static void ShowRouterOpts(const t_router_opts& RouterOpts) {
             case e_router_lookahead::NO_OP:
                 VTR_LOG("NO_OP\n");
                 break;
+            case e_router_lookahead::DIFFERENTIAL_LOOKAHEAD:
+                VTR_LOG("DIFFERENTIAL\n");
+                break;
             default:
                 VPR_FATAL_ERROR(VPR_ERROR_UNKNOWN, "Unknown lookahead_type\n");
         }

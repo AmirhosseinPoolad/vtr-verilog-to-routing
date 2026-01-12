@@ -1116,6 +1116,8 @@ struct ParseRouterLookahead {
             conv_value.set_value(e_router_lookahead::EXTENDED_MAP);
         else if (str == "simple")
             conv_value.set_value(e_router_lookahead::SIMPLE);
+        else if (str == "differential")
+            conv_value.set_value(e_router_lookahead::DIFFERENTIAL_LOOKAHEAD);
         else {
             std::stringstream msg;
             msg << "Invalid conversion from '"
@@ -1137,6 +1139,8 @@ struct ParseRouterLookahead {
             conv_value.set_value("compressed_map");
         } else if (val == e_router_lookahead::SIMPLE) {
             conv_value.set_value("simple");
+        } else if (val == e_router_lookahead::DIFFERENTIAL_LOOKAHEAD) {
+            conv_value.set_value("differential");
         } else {
             VTR_ASSERT(val == e_router_lookahead::EXTENDED_MAP);
             conv_value.set_value("extended_map");
@@ -1145,7 +1149,7 @@ struct ParseRouterLookahead {
     }
 
     std::vector<std::string> default_choices() {
-        return {"classic", "map", "compressed_map", "extended_map", "simple"};
+        return {"classic", "map", "compressed_map", "extended_map", "simple", "differential"};
     }
 };
 

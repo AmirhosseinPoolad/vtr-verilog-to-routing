@@ -8,12 +8,59 @@
 #include "globals.h"
 #include "router_lookahead_map.h"
 #include "rr_graph_fwd.h"
+#include "rr_node_types.h"
 #include "vtr_assert.h"
 #include "vtr_log.h"
 #include "vtr_random.h"
 #include "router_lookahead_map_utils.h"
 
 static constexpr int num_landmarks = 112;
+
+static std::vector<std::pair<int, int>> get_uniform_perimeter_points(int k, int x_size, int y_size) {
+    std::vector<std::pair<int, int>> points;
+    
+    // Safety check: ensure the inner rectangle exists
+    if (k <= 0 || x_size <= 2 || y_size <= 2) {
+        return points;
+    }
+
+    // Coordinates of the inner rectangle boundaries
+    int x_min = 1, y_min = 1;
+    int x_max = x_size - 2;
+    int y_max = y_size - 2;
+
+    int w = x_max - x_min;
+    int h = y_max - y_min;
+    long long perimeter = 2LL * (w + h);
+
+    for (int i = 0; i < k; ++i) {
+        // Distribute k points along the perimeter using integer scaling
+        long long d = (i * perimeter) / k;
+        int x, y;
+
+        if (d < w) {
+            // Bottom edge: moving right
+            x = x_min + (int)d;
+            y = y_min;
+        } else if (d < (w + h)) {
+            // Right edge: moving up
+            x = x_max;
+            y = y_min + (int)(d - w);
+        } else if (d < (2LL * w + h)) {
+            // Top edge: moving left
+            x = x_max - (int)(d - (w + h));
+            y = y_max;
+        } else {
+            // Left edge: moving down
+            x = x_min;
+            y = y_max - (int)(d - (2LL * w + h));
+        }
+        
+        points.push_back({x, y});
+    }
+
+    return points;
+}
 
 DifferentialLookahead::DifferentialLookahead(const t_det_routing_arch& det_routing_arch, bool is_flat, int route_verbosity) {
     map_lookahead = std::make_unique<MapLookahead>(det_routing_arch, is_flat, route_verbosity);
@@ -24,29 +71,11 @@ DifferentialLookahead::DifferentialLookahead(const t_det_routing_arch& det_routi
     std::vector<std::pair<int, int>> landmark_locs;
     vtr::RandomNumberGenerator rng;
 
-    auto [x_size, y_size, z_size] = device.grid.dim_sizes();
+    auto [z_size, x_size, y_size] = device.grid.dim_sizes();
     // num_landmarks / 4 in each side
 
-    // bottom
-    for (int i = 0; i < num_landmarks / 4; i++) {
-        landmark_locs.push_back({i * (x_size / (num_landmarks / 4)), 0});
-    }
-
-    // top
-    for (int i = 0; i < num_landmarks / 4; i++) {
-        landmark_locs.push_back({i * (x_size / (num_landmarks / 4)), y_size - 1});
-    }
-
-    // left
-    for (int i = 0; i < num_landmarks / 4; i++) {
-        landmark_locs.push_back({0, i * (y_size / (num_landmarks / 4))});
-    }
-
-    // right
-    for (int i = 0; i < num_landmarks / 4; i++) {
-        landmark_locs.push_back({x_size, i * (y_size / (num_landmarks / 4))});
-    }
-
+    landmark_locs = get_uniform_perimeter_points(num_landmarks, x_size, y_size);
+    VTR_LOG("%d %d %d\n", landmark_locs.size(), x_size, y_size);
     VTR_ASSERT(landmark_locs.size() == num_landmarks);
 
     // initialize the size of the landmark costs vectors
@@ -141,11 +170,19 @@ float DifferentialLookahead::get_expected_cost(RRNodeId node, RRNodeId target_no
     return costs.first + costs.second;
 }
 std::pair<float, float> DifferentialLookahead::get_expected_delay_and_cong(RRNodeId node, RRNodeId target_node, const t_conn_cost_params& params, float R_upstream) const {
+    auto map_res = map_lookahead->get_expected_delay_and_cong(node, target_node, params, R_upstream);
+
+    const auto& device_ctx = g_vpr_ctx.device();
+    const auto& rr_graph = device_ctx.rr_graph;
+    if (rr_graph.node_type(node) != e_rr_type::CHANZ && rr_graph.node_type(node) != e_rr_type::CHANX && rr_graph.node_type(node) != e_rr_type::CHANY) {
+        return map_res;
+    }
+
     float delay_cost = std::numeric_limits<float>::lowest();
 
     for (int i = 0; i < num_landmarks; i++) {
         delay_cost = std::max(delay_cost, std::abs(landmark_costs[i][(size_t)node] - landmark_costs[i][(size_t)target_node]));
     }
-    auto map_res = map_lookahead->get_expected_delay_and_cong(node, target_node, params, R_upstream);
+
     return {delay_cost * params.criticality, map_res.second};
 }

@@ -1,6 +1,10 @@
 #include "serial_connection_router.h"
 
 #include <algorithm>
+#include <cstdint>
+#include <iterator>
+#include <numeric>
+#include <vector>
 #include "d_ary_heap.h"
 #include "rr_graph_fwd.h"
 
@@ -221,7 +225,10 @@ void SerialConnectionRouter<Heap>::timing_driven_expand_neighbours(const RTExplo
         VTR_PREFETCH(&this->rr_switch_inf_[switch_idx], 0, 0);
     }
 
-    for (RREdgeId from_edge : edges) {
+    std::vector<RREdgeId> shuffled_edges;
+    std::copy(edges.begin(), edges.end(), std::back_inserter(shuffled_edges));
+
+    for (RREdgeId from_edge : shuffled_edges) {
         RRNodeId to_node = this->rr_nodes_.edge_sink_node(from_edge);
         timing_driven_expand_neighbour(current,
                                        from_edge,

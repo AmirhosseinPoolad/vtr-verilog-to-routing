@@ -1,0 +1,97 @@
+#
+############################################
+# Configuration file for running experiments
+##############################################
+
+# Path to directory of circuits to use
+# Change this to directory of blif files after synthesis
+circuits_dir=benchmarks/verilog/koios
+
+# Path to directory of architectures to use
+archs_dir=arch/multi_die/hecate/interposer/hecate_25D
+
+# Add architectures to list to sweep
+arch_list_add=hecate_25d_L17_int_10um_bump_fanin_12.xml
+
+# Add circuits to list to sweep
+circuit_list_add=attention_layer.v
+circuit_list_add=bnn.v
+circuit_list_add=bwave_like.fixed.large.v
+circuit_list_add=clstm_like.large.v
+circuit_list_add=clstm_like.medium.v
+circuit_list_add=clstm_like.small.v
+circuit_list_add=conv_layer_hls.v
+circuit_list_add=dla_like.large.v
+circuit_list_add=dla_like.medium.v
+circuit_list_add=dla_like.small.v
+circuit_list_add=dnnweaver.v
+circuit_list_add=gemm_layer.v
+circuit_list_add=lstm.v
+circuit_list_add=proxy.5.v
+circuit_list_add=proxy.7.v
+circuit_list_add=tdarknet_like.large.v
+circuit_list_add=tdarknet_like.small.v
+circuit_list_add=tpu_like.large.os.v
+circuit_list_add=tpu_like.large.ws.v
+
+# synthesized circuit list, uncomment after first run of the flow, comment the circuits above
+#circuit_list_add=attention_layer.pre-vpr.blif
+#circuit_list_add=bnn.pre-vpr.blif
+#circuit_list_add=bwave_like.fixed.large.pre-vpr.blif
+#circuit_list_add=clstm_like.large.pre-vpr.blif
+#circuit_list_add=clstm_like.medium.pre-vpr.blif
+#circuit_list_add=clstm_like.small.pre-vpr.blif
+#circuit_list_add=conv_layer_hls.pre-vpr.blif
+#circuit_list_add=dla_like.large.pre-vpr.blif
+#circuit_list_add=dla_like.medium.pre-vpr.blif
+#circuit_list_add=dla_like.small.pre-vpr.blif
+#circuit_list_add=dnnweaver.pre-vpr.blif
+#circuit_list_add=gemm_layer.pre-vpr.blif
+#circuit_list_add=lstm.pre-vpr.blif
+#circuit_list_add=proxy.5.pre-vpr.blif
+#circuit_list_add=proxy.7.pre-vpr.blif
+#circuit_list_add=tdarknet_like.large.pre-vpr.blif
+#circuit_list_add=tdarknet_like.small.pre-vpr.blif
+#circuit_list_add=tpu_like.large.os.pre-vpr.blif
+#circuit_list_add=tpu_like.large.ws.pre-vpr.blif
+
+# Use the pre-packed netlists produced from the matching BLIF circuits, use only if not using analytical placement flow
+# Uncomment after first run of the flow
+#circuit_constraint_list_add=(attention_layer.pre-vpr.blif, net_file=[path_to_net_files]/attention_layer.net)
+#circuit_constraint_list_add=(bnn.pre-vpr.blif, net_file=[path_to_net_files]/bnn.net)
+#circuit_constraint_list_add=(bwave_like.fixed.large.pre-vpr.blif, net_file=[path_to_net_files]/bwave_like.fixed.large.net)
+#circuit_constraint_list_add=(clstm_like.large.pre-vpr.blif, net_file=[path_to_net_files]/clstm_like.large.net)
+#circuit_constraint_list_add=(clstm_like.medium.pre-vpr.blif, net_file=[path_to_net_files]/clstm_like.medium.net)
+#circuit_constraint_list_add=(clstm_like.small.pre-vpr.blif, net_file=[path_to_net_files]/clstm_like.small.net)
+#circuit_constraint_list_add=(conv_layer_hls.pre-vpr.blif, net_file=[path_to_net_files]/conv_layer_hls.net)
+#circuit_constraint_list_add=(dla_like.large.pre-vpr.blif, net_file=[path_to_net_files]/dla_like.medium.net)
+#circuit_constraint_list_add=(dla_like.medium.pre-vpr.blif, net_file=[path_to_net_files]/dla_like.medium.net)
+#circuit_constraint_list_add=(dla_like.small.pre-vpr.blif, net_file=[path_to_net_files]/dla_like.small.net)
+#circuit_constraint_list_add=(dnnweaver.pre-vpr.blif, net_file=[path_to_net_files]/dnnweaver.net)
+#circuit_constraint_list_add=(gemm_layer.pre-vpr.blif, net_file=[path_to_net_files]/gemm_layer.net)
+#circuit_constraint_list_add=(lstm.pre-vpr.blif, net_file=[path_to_net_files]/lstm.net)
+#circuit_constraint_list_add=(proxy.5.pre-vpr.blif, net_file=[path_to_net_files]/proxy.5.net)
+#circuit_constraint_list_add=(proxy.7.pre-vpr.blif, net_file=[path_to_net_files]/proxy.7.net)
+#circuit_constraint_list_add=(tdarknet_like.large.pre-vpr.blif, net_file=[path_to_net_files]/tdarknet_like.large.net)
+#circuit_constraint_list_add=(tdarknet_like.small.pre-vpr.blif, net_file=[path_to_net_files]/tdarknet_like.small.net)
+#circuit_constraint_list_add=(tpu_like.large.os.pre-vpr.blif, net_file=[path_to_net_files]/tpu_like.large.os.net)
+#circuit_constraint_list_add=(tpu_like.large.ws.pre-vpr.blif, net_file=[path_to_net_files]/tpu_like.large.ws.net)
+
+# Parse info and how to parse
+parse_file=vpr_fixed_chan_width.txt
+
+# How to parse QoR info
+qor_parse_file=qor_standard.txt
+
+# Pass requirements
+pass_requirements_file=pass_requirements_fixed_chan_width.txt
+
+#Script parameters
+
+# Add -starting_stage vpr to any script_params if you're using pre-synthesized blif files
+
+# non-ap simulated annealing flow
+script_params=-max_router_iterations 100 --route_chan_width 320 --place_checkpointing off --place_interposer_cost_factor 0.1 --place_interposer_cong_cost_factor 0.1 --place_interposer_cong_threshold 0.9 --pack --place --route --analysis --verify_file_digests off
+
+# analytical placement flow
+#script_params=-max_router_iterations 100 --route_chan_width 320 --place_checkpointing off --place_interposer_cost_factor 0.1 --place_interposer_cong_cost_factor 0.1 --place_interposer_cong_threshold 0.9 --analytical_place --route --analysis --verify_file_digests off

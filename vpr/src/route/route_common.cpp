@@ -810,6 +810,8 @@ t_bb load_net_route_bb(const Netlist<>& net_list,
 
     t_bb bb;
 
+    // TODO add changes here
+
     bb.xmin = std::max<int>(xmin - bb_factor, 0);
     bb.xmax = std::min<int>(xmax + bb_factor, device_ctx.grid.width() - 1);
     bb.ymin = std::max<int>(ymin - bb_factor, 0);

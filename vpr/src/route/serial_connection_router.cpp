@@ -248,7 +248,7 @@ void SerialConnectionRouter<Heap>::timing_driven_expand_neighbour(const RTExplor
     // BB-pruning
     // Disable BB-pruning if RCV is enabled, as this can make it harder for circuits with high negative hold slack to resolve this
     // TODO: Only disable pruning if the net has negative hold slack, maybe go off budgets
-    if (!inside_bb(to_node, bounding_box)
+    if (!inside_bb(to_node, bounding_box) // Root Cause
         && !this->rcv_path_manager.is_enabled()) {
         VTR_LOGV_DEBUG(this->router_debug_,
                        "      Pruned expansion of node %d edge %zu -> %d"

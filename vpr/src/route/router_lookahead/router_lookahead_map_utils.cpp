@@ -10,16 +10,19 @@
  *
  * To access the utility functions, the util namespace needs to be used. */
 
+#include <algorithm>
 #include <fstream>
 #include <ranges>
 #include "globals.h"
 #include "physical_types.h"
 #include "physical_types_util.h"
 #include "rr_graph_fwd.h"
+#include "rr_node_types.h"
 #include "vpr_context.h"
 #include "vpr_error.h"
 #include "vpr_utils.h"
 #include "vpr_types.h"
+#include "vtr_assert.h"
 #include "vtr_log.h"
 #include "vtr_math.h"
 #include "vtr_time.h"
@@ -622,6 +625,132 @@ RRNodeId get_chanz_start_node(int start_x, int start_y, int seg_index, int track
     return result;
 }
 
+/**
+ * @brief Computes the delta from a CHANX/CHANY node while accounting for the
+ * segment's populated connection-block and switch-block locations.
+ */
+static std::pair<int, int> get_xy_deltas_from_chanxy_to_ipin(RRNodeId from_node, RRNodeId to_node) {
+    const auto& device_ctx = g_vpr_ctx.device();
+    const auto& rr_graph = device_ctx.rr_graph;
+
+    e_rr_type from_type = rr_graph.node_type(from_node);
+    e_rr_type to_type = rr_graph.node_type(to_node);
+
+    VTR_ASSERT(is_chanxy(from_type));
+    VTR_ASSERT(to_type == e_rr_type::IPIN);
+
+    const RRIndexedDataId from_cost_index = rr_graph.node_cost_index(from_node);
+    const int from_seg_index = device_ctx.rr_indexed_data[from_cost_index].seg_index;
+    const t_segment_inf& from_segment_inf = device_ctx.arch->Segments[from_seg_index];
+
+    auto [to_x, to_y] = get_adjusted_rr_position(to_node);
+
+    // Get chan/seg coordinates of the from/to nodes. seg coordinate is along
+    // the wire, chan coordinate is orthogonal to the wire.
+    int from_seg_low;
+    int from_seg_high;
+    int from_chan;
+    int to_seg;
+    int to_chan;
+    if (from_type == e_rr_type::CHANY) {
+        from_seg_low = rr_graph.node_ylow(from_node);
+        from_seg_high = rr_graph.node_yhigh(from_node);
+        from_chan = rr_graph.node_xlow(from_node);
+        to_seg = to_y;
+        to_chan = to_x;
+    } else {
+        from_seg_low = rr_graph.node_xlow(from_node);
+        from_seg_high = rr_graph.node_xhigh(from_node);
+        from_chan = rr_graph.node_ylow(from_node);
+        to_seg = to_x;
+        to_chan = to_y;
+    }
+
+    bool can_use_cb = false;
+    // 'to' is directly above or below 'from'
+    if (to_chan == from_chan + 1 || to_chan == from_chan) {
+        // Can potentially use connection blocks
+        // But only if from_seg_low is in the span of the 'from' wire
+        if (to_seg >= from_seg_low && to_seg <= from_seg_high) {
+            // If we have a cb connection next to the 'to' block, set can_use_cb to true
+            Direction from_dir = rr_graph.node_direction(from_node);
+            int cb_offset;
+            if (from_dir == Direction::DEC) {
+                cb_offset = from_seg_high - to_seg;
+            } else {
+                cb_offset = to_seg - from_seg_low;
+            }
+
+            can_use_cb = from_segment_inf.cb[cb_offset];
+        }
+    }
+
+    // By using connection blocks we can get to the 'to' block without any
+    // further displacement
+    if (can_use_cb) {
+        return {0, 0};
+    }
+
+    int delta_seg;
+
+    // Must use switch blocks and routing at this point
+    Direction from_dir = rr_graph.node_direction(from_node);
+    bool has_sb_connection = std::ranges::any_of(from_segment_inf.sb, [](bool connected) {
+        return connected;
+    });
+
+    if (has_sb_connection) {
+        int closest_sb_delta = std::numeric_limits<int>::max();
+        for (size_t sb_offset = 0; sb_offset < from_segment_inf.sb.size(); ++sb_offset) {
+            if (!from_segment_inf.sb[sb_offset]) {
+                continue;
+            }
+
+            int sb_seg = from_seg_low + static_cast<int>(sb_offset) - 1;
+            if (from_dir == Direction::DEC) {
+                sb_seg = from_seg_high - static_cast<int>(sb_offset) - 1;
+            }
+
+            closest_sb_delta = std::min(closest_sb_delta, std::abs(to_seg - sb_seg));
+        }
+
+        delta_seg = closest_sb_delta;
+    } else {
+        // If no switch block connections, assume point to point connection -> can get on the wire at
+        // start and get off wire at end. In case of bidirectional, we use the closest end.
+        if (from_dir == Direction::INC) {
+            delta_seg = std::abs(to_seg - from_seg_high);
+        } else if (from_dir == Direction::DEC) {
+            delta_seg = std::abs(to_seg - from_seg_low);
+        } else {
+            VTR_ASSERT_SAFE(from_dir == Direction::BIDIR);
+            delta_seg = std::min(std::abs(to_seg - from_seg_low),
+                                 std::abs(to_seg - from_seg_high));
+        }
+    }
+
+    int delta_chan;
+    if (to_chan > from_chan + 1) {
+        delta_chan = to_chan - from_chan;
+    } else if (to_chan < from_chan) {
+        delta_chan = from_chan - to_chan + 1;
+    } else {
+        delta_chan = 0;
+    }
+
+    int delta_x;
+    int delta_y;
+    if (from_type == e_rr_type::CHANY) {
+        delta_x = delta_chan;
+        delta_y = delta_seg;
+    } else {
+        delta_x = delta_seg;
+        delta_y = delta_chan;
+    }
+
+    return {delta_x, delta_y};
+}
+
 std::pair<int, int> get_xy_deltas(RRNodeId from_node, RRNodeId to_node) {
     const auto& device_ctx = g_vpr_ctx.device();
     const auto& rr_graph = device_ctx.rr_graph;
@@ -631,7 +760,11 @@ std::pair<int, int> get_xy_deltas(RRNodeId from_node, RRNodeId to_node) {
 
     int delta_x, delta_y;
 
-    if (!is_chanxy(from_type) && !is_chanxy(to_type)) {
+    if (is_chanxy(from_type) && to_type == e_rr_type::IPIN) {
+        auto [chanxy_delta_x, chanxy_delta_y] = get_xy_deltas_from_chanxy_to_ipin(from_node, to_node);
+        delta_x = chanxy_delta_x;
+        delta_y = chanxy_delta_y;
+    } else if (!is_chanxy(from_type) && !is_chanxy(to_type)) {
         //Alternate formulation for non-channel types
         auto [from_x, from_y] = util::get_adjusted_rr_position(from_node);
         auto [to_x, to_y] = util::get_adjusted_rr_position(to_node);

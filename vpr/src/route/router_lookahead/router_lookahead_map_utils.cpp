@@ -15,10 +15,12 @@
 #include "globals.h"
 #include "physical_types.h"
 #include "physical_types_util.h"
+#include "rr_graph_fwd.h"
 #include "vpr_context.h"
 #include "vpr_error.h"
 #include "vpr_utils.h"
 #include "vpr_types.h"
+#include "vtr_log.h"
 #include "vtr_math.h"
 #include "vtr_time.h"
 #include "route_common.h"
@@ -790,9 +792,42 @@ t_routing_cost_map get_routing_cost_map(int longest_seg_length,
         }
     }
 
+    if (grid.has_interposer_cuts()) {
+        // sample nodes on interposer wires
+        for (int cut_y : grid.get_horizontal_interposer_cuts()[from_layer_num]) {
+            int int_ref_x = 1;
+            int sample_y = cut_y;
+
+            for (int ref_inc : ref_increments) {
+                int sample_x = int_ref_x + ref_inc;
+
+                for (int track_offset = 0; track_offset < MAX_TRACK_OFFSET; track_offset += 2) {
+                    // Get the rr node index from which to start routing
+
+                    RRNodeId start_node;
+                    if (is_chanxy(chan_type)) {
+                        start_node = get_chanxy_start_node(from_layer_num, sample_x, sample_y,
+                                                           target_x, target_y,
+                                                           chan_type, segment_inf.seg_index, track_offset);
+                    } else {
+                        VTR_ASSERT(is_chanz(chan_type));
+                        Direction direction = (from_layer_num == 0) ? Direction::DEC : Direction::INC;
+                        start_node = get_chanz_start_node(sample_x, sample_x, segment_inf.seg_index, track_offset, direction);
+                    }
+
+                    if (start_node) {
+                        sample_nodes.emplace_back(start_node);
+                        VTR_LOG("Added interposer cut sample.\n");
+                    }
+                }
+            }
+        }
+    }
+
     // If we failed to find any representative sample locations, search exhaustively
     // This is to ensure we sample 'unusual' wire types which may not exist in all channels (e.g. clock routing)
     if (sample_nodes.empty()) {
+
         // Try an exhaustive search to find a suitable sample point
         for (RRNodeId rr_node : rr_graph.nodes()) {
             e_rr_type rr_type = rr_graph.node_type(rr_node);
@@ -838,6 +873,8 @@ t_routing_cost_map get_routing_cost_map(int longest_seg_length,
         for (RRNodeId sample_node : sample_nodes) {
             int sample_x = rr_graph.node_xlow(sample_node);
             int sample_y = rr_graph.node_ylow(sample_node);
+
+            VTR_LOG("lookahead node sample loc: X%d Y%d\n", sample_x, sample_y);
 
             if (rr_graph.node_direction(sample_node) == Direction::DEC) {
                 sample_x = rr_graph.node_xhigh(sample_node);
@@ -1398,6 +1435,7 @@ static void run_dijkstra(RRNodeId start_node,
                 }
 
                 if (store_this_pin) {
+                    // adding delta xy
                     routing_cost_map[ipin_layer][delta_x][delta_y].add_cost_entry(util::e_representative_entry_method::SMALLEST,
                                                                                   current.delay,
                                                                                   current.congestion_upstream);

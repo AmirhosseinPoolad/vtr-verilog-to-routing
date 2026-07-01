@@ -5,6 +5,7 @@
 #include <utility>
 #include <vector>
 #include "device_grid.h"
+#include "globals.h"
 #include "physical_types.h"
 #include "route_common.h"
 #include "rr_graph_fwd.h"
@@ -83,10 +84,19 @@ InterposerLookahead::InterposerLookahead(const RRGraphView& rr_graph, const Devi
 }
 
 std::pair<float, float> InterposerLookahead::get_interposer_lookahead_cost(RRNodeId from_node, RRNodeId to_node) const {
+    auto& rr_graph = g_vpr_ctx.device().rr_graph;
+
     int from_layer = rr_graph_.node_layer_low(from_node);
     int to_layer = rr_graph_.node_layer_low(to_node);
 
-    auto [from_x, from_y] = util::get_adjusted_rr_position(from_node);
+    int from_x, from_y;
+    if (rr_graph.node_direction(from_node) == Direction::INC) {
+        from_x = rr_graph.node_xhigh(from_node);
+        from_y = rr_graph.node_yhigh(from_node);
+    } else {
+        from_x = rr_graph.node_xlow(from_node);
+        from_y = rr_graph.node_ylow(from_node);
+    }
     auto [to_x, to_y] = util::get_adjusted_rr_position(to_node);
 
     return get_interposer_lookahead_cost({from_x, from_y, from_layer}, {to_x, to_y, to_layer});

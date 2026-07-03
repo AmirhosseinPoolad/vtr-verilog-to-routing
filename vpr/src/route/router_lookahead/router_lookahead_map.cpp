@@ -545,7 +545,11 @@ static void compute_router_wire_lookahead(const std::vector<t_segment_inf>& segm
 
     int longest_seg_length = 0;
     for (const t_segment_inf& seg_inf : segment_inf_vec) {
-        longest_seg_length = std::max(longest_seg_length, seg_inf.length);
+        // longest_seg_length only cares about segments that exist in normal routing wires
+        // Exclude segment types with 0 frequency e.g. scatter gather segments and unused segments
+        if (seg_inf.frequency != 0) {
+            longest_seg_length = std::max(longest_seg_length, seg_inf.length);
+        }
     }
 
     // Profile each wire segment type

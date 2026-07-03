@@ -759,24 +759,8 @@ std::pair<int, int> get_xy_deltas(RRNodeId from_node, RRNodeId to_node) {
     e_rr_type from_type = rr_graph.node_type(from_node);
     e_rr_type to_type = rr_graph.node_type(to_node);
 
-    if (is_chanxy(from_type)) {
-        const RRIndexedDataId from_cost_index = rr_graph.node_cost_index(from_node);
-        const int from_seg_index = device_ctx.rr_indexed_data[from_cost_index].seg_index;
-        const t_segment_inf& from_segment_inf = device_ctx.arch->Segments[from_seg_index];
-        int from_x, from_y;
-        if (from_segment_inf.frequency == 0) {
-        if (rr_graph.node_direction(from_node) == Direction::INC) {
-            from_x = rr_graph.node_xhigh(from_node);
-            from_y = rr_graph.node_yhigh(from_node);
-        } else {
-            from_x = rr_graph.node_xlow(from_node);
-            from_y = rr_graph.node_ylow(from_node);
-        }
-        auto [to_x, to_y] = get_adjusted_rr_position(to_node);
-
-        
-        return {std::abs(from_x - to_x), std::abs(from_y - to_y)};
-        }
+    if (is_chanxy(from_type) && to_type == e_rr_type::IPIN) {
+        return get_xy_deltas_from_chanxy_to_ipin(from_node, to_node);
     }
 
     int delta_x, delta_y;

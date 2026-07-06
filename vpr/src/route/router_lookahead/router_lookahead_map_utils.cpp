@@ -11,6 +11,7 @@
  * To access the utility functions, the util namespace needs to be used. */
 
 #include <algorithm>
+#include <array>
 #include <fstream>
 #include <ranges>
 #include "globals.h"
@@ -18,6 +19,7 @@
 #include "physical_types_util.h"
 #include "rr_graph_fwd.h"
 #include "rr_node_types.h"
+#include "switchblock_types.h"
 #include "vpr_context.h"
 #include "vpr_error.h"
 #include "vpr_utils.h"
@@ -643,7 +645,18 @@ static std::pair<int, int> get_xy_deltas_from_chanxy_to_ipin(RRNodeId from_node,
     const int from_seg_index = device_ctx.rr_indexed_data[from_cost_index].seg_index;
     const t_segment_inf& from_segment_inf = device_ctx.arch->Segments[from_seg_index];
 
+    // constexpr std::array<e_side, 2> chanx_adjacent_sides = {e_side::BOTTOM, e_side::TOP};
+    // constexpr std::array<e_side, 2> chany_adjacent_sides = {e_side::LEFT, e_side::RIGHT};
+
+    // const std::array<e_side, 2>& adjacent_sides = (from_type == e_rr_type::CHANX) ? chanx_adjacent_sides : chany_adjacent_sides;
+
+    // adjusted rr_position will return the position of the routing channel that 'to_node' pin is adjacent to
     auto [to_x, to_y] = get_adjusted_rr_position(to_node);
+
+    Direction from_dir = rr_graph.node_direction(from_node);
+    bool has_sb_connection = std::ranges::any_of(from_segment_inf.sb, [](bool connected) {
+        return connected;
+    });
 
     // Get chan/seg coordinates of the from/to nodes. seg coordinate is along
     // the wire, chan coordinate is orthogonal to the wire.
@@ -666,14 +679,16 @@ static std::pair<int, int> get_xy_deltas_from_chanxy_to_ipin(RRNodeId from_node,
         to_chan = to_y;
     }
 
+    // Calculate delta_chan
+    int delta_chan = std::abs(to_chan - from_chan);
+
     bool can_use_cb = false;
-    // 'to' is directly above or below 'from'
-    if (to_chan == from_chan + 1 || to_chan == from_chan) {
+    // 'to' pin is adjacent to the same routing channel as 'from'
+    if (to_chan == from_chan) {
         // Can potentially use connection blocks
         // But only if from_seg_low is in the span of the 'from' wire
         if (to_seg >= from_seg_low && to_seg <= from_seg_high) {
             // If we have a cb connection next to the 'to' block, set can_use_cb to true
-            Direction from_dir = rr_graph.node_direction(from_node);
             int cb_offset;
             if (from_dir == Direction::DEC) {
                 cb_offset = from_seg_high - to_seg;
@@ -692,13 +707,6 @@ static std::pair<int, int> get_xy_deltas_from_chanxy_to_ipin(RRNodeId from_node,
     }
 
     int delta_seg;
-
-    // Must use switch blocks and routing at this point
-    Direction from_dir = rr_graph.node_direction(from_node);
-    bool has_sb_connection = std::ranges::any_of(from_segment_inf.sb, [](bool connected) {
-        return connected;
-    });
-
     if (has_sb_connection) {
         int closest_sb_delta = std::numeric_limits<int>::max();
         for (size_t sb_offset = 0; sb_offset < from_segment_inf.sb.size(); ++sb_offset) {
@@ -706,9 +714,9 @@ static std::pair<int, int> get_xy_deltas_from_chanxy_to_ipin(RRNodeId from_node,
                 continue;
             }
 
-            int sb_seg = from_seg_low + static_cast<int>(sb_offset) - 1;
+            int sb_seg = from_seg_low + static_cast<int>(sb_offset);
             if (from_dir == Direction::DEC) {
-                sb_seg = from_seg_high - static_cast<int>(sb_offset) - 1;
+                sb_seg = from_seg_high - static_cast<int>(sb_offset);
             }
 
             closest_sb_delta = std::min(closest_sb_delta, std::abs(to_seg - sb_seg));
@@ -727,15 +735,6 @@ static std::pair<int, int> get_xy_deltas_from_chanxy_to_ipin(RRNodeId from_node,
             delta_seg = std::min(std::abs(to_seg - from_seg_low),
                                  std::abs(to_seg - from_seg_high));
         }
-    }
-
-    int delta_chan;
-    if (to_chan > from_chan + 1) {
-        delta_chan = to_chan - from_chan;
-    } else if (to_chan < from_chan) {
-        delta_chan = from_chan - to_chan + 1;
-    } else {
-        delta_chan = 0;
     }
 
     int delta_x;

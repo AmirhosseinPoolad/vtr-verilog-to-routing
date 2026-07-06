@@ -747,6 +747,17 @@ static std::pair<int, int> get_xy_deltas_from_chanxy_to_ipin(RRNodeId from_node,
         delta_y = delta_chan;
     }
 
+    auto from_xy = get_adjusted_rr_position(from_node);
+    int from_layer = rr_graph.node_layer_low(from_node);
+
+    auto to_xy = get_adjusted_rr_position(to_node);
+    int to_layer = rr_graph.node_layer_low(to_node);
+
+    if (!device_ctx.grid.are_locs_on_same_die({from_xy.first, from_xy.second, from_layer},
+                                             {to_xy.first, to_xy.second, to_layer})) {
+        delta_y = std::max(0, delta_y - 37);
+    }
+
     return {delta_x, delta_y};
 }
 

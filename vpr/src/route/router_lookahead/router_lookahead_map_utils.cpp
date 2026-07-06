@@ -719,6 +719,17 @@ std::pair<int, int> get_xy_deltas(RRNodeId from_node, RRNodeId to_node) {
         }
     }
 
+    auto from_xy = get_adjusted_rr_position(from_node);
+    int from_layer = rr_graph.node_layer_low(from_node);
+
+    auto to_xy = get_adjusted_rr_position(to_node);
+    int to_layer = rr_graph.node_layer_low(to_node);
+
+    if (!device_ctx.grid.are_locs_on_same_die({from_xy.first, from_xy.second, from_layer},
+                                             {to_xy.first, to_xy.second, to_layer})) {
+        delta_y = std::max(0, delta_y - 37);
+    }
+
     VTR_ASSERT_SAFE(std::abs(delta_x) < (int)device_ctx.grid.width());
     VTR_ASSERT_SAFE(std::abs(delta_y) < (int)device_ctx.grid.height());
 

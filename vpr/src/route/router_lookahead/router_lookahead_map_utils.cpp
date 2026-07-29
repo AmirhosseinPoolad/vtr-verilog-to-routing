@@ -26,7 +26,7 @@
 #include "route_debug.h"
 #include "vtr_util.h"
 
-#include "router_lookahead_sampling_utils.h"
+#include "router_lookahead_dijkstra_utils.h"
 
 /**
  * We will profile delay/congestion using this many tracks for each wire type.

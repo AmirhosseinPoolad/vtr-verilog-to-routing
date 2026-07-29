@@ -1,11 +1,12 @@
 #include "router_lookahead_separable.h"
 
+#include <array>
 #include <memory>
 #include "connection_router_interface.h"
 #include "globals.h"
 #include "router_lookahead_map.h"
 #include "router_lookahead_map_utils.h"
-#include "router_lookahead_sampling_utils.h"
+#include "router_lookahead_dijkstra_utils.h"
 #include "rr_node_types.h"
 #include "vpr_context.h"
 #include "vpr_error.h"
@@ -189,6 +190,149 @@ static void compute_wire_cost_map_for_axis(const std::vector<t_segment_inf>& seg
     }
 }
 
+/**
+ * @brief Fills in missing entries in a single-axis wire cost map by linear interpolation
+ *        along the target coordinate (the last index of the map).
+ *
+ * For each row of the map (all indices fixed except the target coordinate), the row is scanned
+ * along the target coordinate keeping track of the last valid entry seen. When a run of invalid
+ * entries is bounded by valid entries on both sides, each entry in the run is filled by linearly
+ * interpolating delay and congestion between the two bounding valid entries.
+ *
+ * Runs of invalid entries at either end of the row (i.e. with no valid entry before or after them)
+ * are left untouched; filling those is deferred to a separate post-processing step.
+ */
+static void fill_in_missing_wire_cost_map_entries(vtr::NdMatrix<util::Cost_Entry, 7>& wire_cost_map) {
+    const size_t axis_dim_size = wire_cost_map.dim_size(6);
+
+    for (size_t from_layer = 0; from_layer < wire_cost_map.dim_size(0); from_layer++) {
+        for (size_t to_layer = 0; to_layer < wire_cost_map.dim_size(1); to_layer++) {
+            for (size_t chan_index = 0; chan_index < wire_cost_map.dim_size(2); chan_index++) {
+                for (size_t seg_index = 0; seg_index < wire_cost_map.dim_size(3); seg_index++) {
+                    for (size_t dir_index = 0; dir_index < wire_cost_map.dim_size(4); dir_index++) {
+                        for (size_t c1 = 0; c1 < wire_cost_map.dim_size(5); c1++) {
+                            vtr::NdMatrixProxy<util::Cost_Entry, 1> row = wire_cost_map[from_layer][to_layer][chan_index][seg_index][dir_index][c1];
+
+                            int last_valid = -1; // Index of the last valid entry seen so far (-1: none yet)
+                            for (size_t c2 = 0; c2 < axis_dim_size; c2++) {
+                                if (!row[c2].valid()) {
+                                    continue;
+                                }
+
+                                // Found a valid entry. If there is a gap of invalid entries between it and
+                                // the previous valid entry, fill the gap by linear interpolation.
+                                if (last_valid >= 0 && c2 > (size_t)last_valid + 1) {
+                                    const util::Cost_Entry& prev_entry = row[last_valid];
+                                    const util::Cost_Entry& next_entry = row[c2];
+                                    for (size_t fill_c2 = last_valid + 1; fill_c2 < c2; fill_c2++) {
+                                        const float frac = (float)(fill_c2 - last_valid) / (float)(c2 - last_valid);
+                                        row[fill_c2] = util::Cost_Entry(prev_entry.delay + frac * (next_entry.delay - prev_entry.delay),
+                                                                        prev_entry.congestion + frac * (next_entry.congestion - prev_entry.congestion),
+                                                                        /*set_fill=*/true);
+                                    }
+                                }
+
+                                last_valid = (int)c2;
+                            }
+                            // Invalid entries before the first valid entry or after the last valid entry are
+                            // intentionally left as-is; they are handled in a later post-processing step.
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * @brief Fills the entries still missing after fill_in_missing_wire_cost_map_entries() by copying
+ *        from a neighbouring start coordinate (c1) row.
+ *
+ * The interpolation pass cannot fill runs of invalid entries at the ends of a row (no valid entry
+ * to interpolate towards). For each such entry [c1][c2], this pass copies the entry at the same
+ * target coordinate c2 from a nearby row, trying c1+1, c1-1, c1+2, c1-2, c1+3, c1-3 in that order
+ * and taking the first valid one. If no valid entry is found within +/-3 rows, the entry is set to
+ * ROUTER_LOOKAHEAD_NO_PATH_SENTINEL (which makes get_expected_delay_and_cong() fall back to the
+ * map lookahead) and a warning is printed.
+ *
+ * Planes (fixed layer/chan type/segment/direction) with no valid entries at all are skipped: they
+ * were never profiled (e.g. a segment type that does not run along this plane's channel type), so
+ * there is nothing meaningful to copy and the query-time fallback handles them.
+ *
+ * "map_name" identifies the map ("x" or "y") in the warning message.
+ */
+static void fill_in_missing_wire_cost_map_entries_from_neighbours(vtr::NdMatrix<util::Cost_Entry, 7>& wire_cost_map, const char* map_name) {
+    const int c1_dim_size = (int)wire_cost_map.dim_size(5);
+    const int c2_dim_size = (int)wire_cost_map.dim_size(6);
+
+    for (size_t from_layer = 0; from_layer < wire_cost_map.dim_size(0); from_layer++) {
+        for (size_t to_layer = 0; to_layer < wire_cost_map.dim_size(1); to_layer++) {
+            for (size_t chan_index = 0; chan_index < wire_cost_map.dim_size(2); chan_index++) {
+                for (size_t seg_index = 0; seg_index < wire_cost_map.dim_size(3); seg_index++) {
+                    for (size_t dir_index = 0; dir_index < wire_cost_map.dim_size(4); dir_index++) {
+                        vtr::NdMatrixProxy<util::Cost_Entry, 2> plane = wire_cost_map[from_layer][to_layer][chan_index][seg_index][dir_index];
+
+                        // Skip planes that were never profiled at all
+                        bool plane_has_valid_entry = false;
+                        for (int c1 = 0; c1 < c1_dim_size && !plane_has_valid_entry; c1++) {
+                            for (int c2 = 0; c2 < c2_dim_size && !plane_has_valid_entry; c2++) {
+                                plane_has_valid_entry = plane[c1][c2].valid();
+                            }
+                        }
+                        if (!plane_has_valid_entry) {
+                            continue;
+                        }
+
+                        // Collect the fills first and apply them afterwards, so that every copy is
+                        // taken from the plane's contents before this pass (a filled entry never
+                        // becomes the source of another fill).
+                        std::vector<std::tuple<int, int, util::Cost_Entry>> fills;
+                        int num_sentinel_fills = 0;
+
+                        for (int c1 = 0; c1 < c1_dim_size; c1++) {
+                            for (int c2 = 0; c2 < c2_dim_size; c2++) {
+                                if (plane[c1][c2].valid()) {
+                                    continue;
+                                }
+
+                                constexpr std::array<int, 6> missing_entry_sampling_offsets = {1, -1, 2, -2, 3, -3};
+
+                                bool found = false;
+                                for (int offset : missing_entry_sampling_offsets) {
+                                    const int neighbour_c1 = c1 + offset;
+                                    if (neighbour_c1 < 0 || neighbour_c1 >= c1_dim_size) {
+                                        continue;
+                                    }
+                                    const util::Cost_Entry& neighbour_entry = plane[neighbour_c1][c2];
+                                    if (neighbour_entry.valid()) {
+                                        fills.emplace_back(c1, c2, util::Cost_Entry(neighbour_entry.delay, neighbour_entry.congestion, /*set_fill=*/true));
+                                        found = true;
+                                        break;
+                                    }
+                                }
+
+                                if (!found) {
+                                    fills.emplace_back(c1, c2, util::Cost_Entry(ROUTER_LOOKAHEAD_NO_PATH_SENTINEL, ROUTER_LOOKAHEAD_NO_PATH_SENTINEL, /*set_fill=*/true));
+                                    num_sentinel_fills++;
+                                }
+                            }
+                        }
+
+                        for (const auto& [c1, c2, entry] : fills) {
+                            plane[c1][c2] = entry;
+                        }
+
+                        if (num_sentinel_fills > 0) {
+                            VTR_LOG_WARN("Separable lookahead %s map: %d entries (from_layer=%zu, to_layer=%zu, chan_index=%zu, seg_index=%zu, dir_index=%zu) had no valid entry in nearby rows; set to the no-path sentinel.\n",
+                                         map_name, num_sentinel_fills, from_layer, to_layer, chan_index, seg_index, dir_index);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 static void compute_router_wire_lookahead(const std::vector<t_segment_inf>& segment_infs,
                                           int /*route_verbosity*/,
                                           bool /*device_model_warnings*/,
@@ -196,6 +340,12 @@ static void compute_router_wire_lookahead(const std::vector<t_segment_inf>& segm
                                           t_y_wire_cost_map& y_wire_cost_map) {
     compute_wire_cost_map_for_axis(segment_infs, e_profile_axis::X, x_wire_cost_map);
     compute_wire_cost_map_for_axis(segment_infs, e_profile_axis::Y, y_wire_cost_map);
+
+    fill_in_missing_wire_cost_map_entries(x_wire_cost_map);
+    fill_in_missing_wire_cost_map_entries(y_wire_cost_map);
+
+    fill_in_missing_wire_cost_map_entries_from_neighbours(x_wire_cost_map, "x");
+    fill_in_missing_wire_cost_map_entries_from_neighbours(y_wire_cost_map, "y");
 }
 
 /**

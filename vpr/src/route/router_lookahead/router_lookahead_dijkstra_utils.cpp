@@ -1,4 +1,4 @@
-#include "router_lookahead_sampling_utils.h"
+#include "router_lookahead_dijkstra_utils.h"
 #include <functional>
 #include "globals.h"
 #include "vpr_context.h"

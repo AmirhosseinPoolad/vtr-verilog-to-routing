@@ -4,7 +4,6 @@
 #include <string>
 #include "vtr_ndmatrix.h"
 #include "router_lookahead.h"
-#include "router_lookahead_map.h"
 #include "router_lookahead_map_utils.h"
 #include "router_lookahead_interposer.h"
 
@@ -89,14 +88,6 @@ class SeparableLookahead : public RouterLookahead {
     std::unordered_map<int, util::t_ipin_primitive_sink_delays> intra_tile_pin_primitive_pin_delay; // [physical_tile_type][from_pin_physical_num][sink_physical_num] -> cost
     // Lookup table to store the minimum cost to reach to a primitive pin from the root-level IPINs
     std::unordered_map<int, std::unordered_map<int, util::Cost_Entry>> tile_min_cost; // [physical_tile_type][sink_physical_num] -> cost
-
-    // A MapLookahead used to answer SOURCE/OPIN distance queries (get_opin_distance_min_delay, and the
-    // SOURCE/OPIN case of get_expected_delay_and_cong). The separable lookahead only overrides the
-    // wire-to-target (CHAN) cost estimation; OPIN/SOURCE handling is delegated to this object.
-    // It also supplies the fall-back cost for map entries this lookahead never profiled.
-    // Held by base-class pointer because MapLookahead redeclares the RouterLookahead overrides as
-    // protected; it is always a MapLookahead.
-    std::unique_ptr<RouterLookahead> map_lookahead_;
 
     t_x_wire_cost_map x_wire_cost_map_;
     t_y_wire_cost_map y_wire_cost_map_;

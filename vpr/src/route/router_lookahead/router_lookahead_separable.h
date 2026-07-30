@@ -11,7 +11,7 @@
  * @brief Provides delay/congestion estimates to travel to a point with a given
  * x-coordinate, considering only the x component of the route.
  *
- * This is a 7D array storing the cost to travel from a node of type CHANX/CHANY/CHANZ
+ * This is a 6D array storing the cost to travel from a node of type CHANX/CHANY/CHANZ
  * whose x-coordinate is x1, to a point whose x-coordinate is x2, on the "layer_num" layer.
  *
  * To store this information:
@@ -19,23 +19,21 @@
  * - The second index is the layer number of the target node.
  * - The third index represents the type of channel (X/Y/Z) that the node under consideration belongs to.
  * - The forth is the segment type (specified in the architecture file under the "segmentlist" tag).
- * - The fifth is the wire direction (INC/DEC/BIDIR) of the node under consideration.
- * - The sixth is x1.
+ * - The fifth is x1.
  * - The last one is x2.
  *
- * @note [0..num_layers][0..num_layers][0..2][0..num_seg_types-1][0..2][0..device_ctx.grid.width()-1][0..device_ctx.grid.width()-1]
+ * @note [0..num_layers][0..num_layers][0..2][0..num_seg_types-1][0..device_ctx.grid.width()-1][0..device_ctx.grid.width()-1]
  * - [0..2] (3rd index) entry distinguish between CHANX/CHANY/CHANZ start nodes respectively
- * - [0..2] (5th index) entry distinguish between INC/DEC/BIDIR wire directions respectively (see Direction in rr_node_types.h)
  * - The first index is the layer number that the node under consideration is on.
  * - The second index is the layer number that the target node is on.
  */
-typedef vtr::NdMatrix<util::Cost_Entry, 7> t_x_wire_cost_map;
+typedef vtr::NdMatrix<util::Cost_Entry, 6> t_x_wire_cost_map;
 
 /**
  * @brief Provides delay/congestion estimates to travel to a point with a given
  * y-coordinate, considering only the y component of the route.
  *
- * This is a 7D array storing the cost to travel from a node of type CHANX/CHANY/CHANZ
+ * This is a 6D array storing the cost to travel from a node of type CHANX/CHANY/CHANZ
  * whose y-coordinate is y1, to a point whose y-coordinate is y2, on the "layer_num" layer.
  *
  * To store this information:
@@ -43,17 +41,15 @@ typedef vtr::NdMatrix<util::Cost_Entry, 7> t_x_wire_cost_map;
  * - The second index is the layer number of the target node.
  * - The third index represents the type of channel (X/Y/Z) that the node under consideration belongs to.
  * - The forth is the segment type (specified in the architecture file under the "segmentlist" tag).
- * - The fifth is the wire direction (INC/DEC/BIDIR) of the node under consideration.
- * - The sixth is y1.
+ * - The fifth is y1.
  * - The last one is y2.
  *
- * @note [0..num_layers][0..num_layers][0..2][0..num_seg_types-1][0..2][0..device_ctx.grid.height()-1][0..device_ctx.grid.height()-1]
+ * @note [0..num_layers][0..num_layers][0..2][0..num_seg_types-1][0..device_ctx.grid.height()-1][0..device_ctx.grid.height()-1]
  * - [0..2] (3rd index) entry distinguish between CHANX/CHANY/CHANZ start nodes respectively
- * - [0..2] (5th index) entry distinguish between INC/DEC/BIDIR wire directions respectively (see Direction in rr_node_types.h)
  * - The first index is the layer number that the node under consideration is on.
  * - The second index is the layer number that the target node is on.
  */
-typedef vtr::NdMatrix<util::Cost_Entry, 7> t_y_wire_cost_map;
+typedef vtr::NdMatrix<util::Cost_Entry, 6> t_y_wire_cost_map;
 
 /**
  * @brief RouterLookahead implementation which estimates delay/congestion by

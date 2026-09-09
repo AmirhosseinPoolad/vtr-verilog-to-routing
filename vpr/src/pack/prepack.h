@@ -141,6 +141,8 @@ struct t_molecule_stats {
     /// @brief Number of *used external* output pins across all primitives in
     ///        molecule.
     int num_used_ext_outputs = 0;
+
+    float max_eigenvector_centrality = 0.f; ///< Maximum atom centrality, populated in the seed selector's maximum stats for BLEND2.
 };
 
 /// @brief Sets of nets that cross the boundary of a molecule, partitioned by pin type.

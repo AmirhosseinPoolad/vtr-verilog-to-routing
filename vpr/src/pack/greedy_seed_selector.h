@@ -9,6 +9,7 @@
 
 #include "prepack.h"
 #include "vpr_types.h"
+#include "vtr_vector.h"
 
 // Forward declarations
 class AtomNetlist;
@@ -17,6 +18,31 @@ class LogicalModels;
 class PreClusterTimingManager;
 class RamMapper;
 struct t_molecule_stats;
+
+/**
+ * @brief Precomputes eigenvector centrality for the atoms in a netlist.
+ *
+ * Each driver-to-sink pin connection adds an undirected edge of unit weight.
+ * Parallel connections accumulate; self-connections are excluded. All nets,
+ * including clock nets, participate. Scores are the non-negative, L2-normalized
+ * dominant eigenvector of this adjacency matrix. Isolated atoms score zero.
+ * Disconnected components compete for the global dominant eigenvalue; equal
+ * dominant eigenvalues are resolved by a uniform initial vector.
+ */
+class AtomEigenvectorCentrality {
+  public:
+    /** @brief Compute scores using shifted sparse power iteration with Eigen.
+     * Uses a relative residual tolerance of 1e-6 and at most 1000 iterations.
+     * Warns and retains the approximation if the iteration limit is reached.
+     */
+    explicit AtomEigenvectorCentrality(const AtomNetlist& atom_netlist);
+
+    /// @brief Return the precomputed score for a valid atom in the input netlist.
+    float get_centrality(AtomBlockId atom_id) const;
+
+  private:
+    vtr::vector<AtomBlockId, float> centrality_; ///< Atom scores; invalid ID slots contain -1.
+};
 
 /**
  * @brief A selector class which will propose good seed values to start new
@@ -45,7 +71,8 @@ class GreedySeedSelector {
      *              each molecule.
      *  @param max_molecule_stats
      *              The maximum stats over all molecules. Used for normalizing
-     *              terms in the gain.
+     *              terms in the gain. The local copy is augmented with the
+     *              maximum atom eigenvector centrality for BLEND2.
      *  @param pre_cluster_timing_manager
      *              Timing manager class for the primitive netlist. Used to
      *              compute the criticalities of seeds.
@@ -57,7 +84,7 @@ class GreedySeedSelector {
     GreedySeedSelector(const AtomNetlist& atom_netlist,
                        const Prepacker& prepacker,
                        const e_cluster_seed seed_type,
-                       const t_molecule_stats& max_molecule_stats,
+                       t_molecule_stats max_molecule_stats,
                        const LogicalModels& models,
                        const PreClusterTimingManager& pre_cluster_timing_manager,
                        const RamMapper& ram_mapper);

@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <optional>
 #include <vector>
 #include "PreClusterTimingManager.h"
 #include "atom_netlist.h"
@@ -23,7 +24,99 @@
 #include "vpr_types.h"
 #include "vtr_assert.h"
 #include "vtr_math.h"
+#include "vtr_log.h"
 #include "vtr_vector.h"
+
+#ifdef EIGEN_INSTALLED
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wnull-dereference"
+#include <Eigen/Sparse>
+#pragma GCC diagnostic pop
+#endif
+
+AtomEigenvectorCentrality::AtomEigenvectorCentrality(const AtomNetlist& atom_netlist) {
+#ifdef EIGEN_INSTALLED
+    // Map valid atom IDs to compact matrix indices, including uncompressed netlists.
+    size_t num_atom_ids = 0;
+    for (AtomBlockId atom_id : atom_netlist.blocks()) {
+        num_atom_ids = std::max(num_atom_ids, size_t(atom_id) + 1);
+    }
+    centrality_.resize(num_atom_ids, -1.f);
+    vtr::vector<AtomBlockId, Eigen::Index> atom_indices(num_atom_ids, -1);
+    Eigen::Index num_atoms = 0;
+    for (AtomBlockId atom_id : atom_netlist.blocks()) {
+        atom_indices[atom_id] = num_atoms++;
+        centrality_[atom_id] = 0.f;
+    }
+    if (num_atoms == 0) {
+        return;
+    }
+
+    using SparseMatrix = Eigen::SparseMatrix<double, Eigen::ColMajor, Eigen::Index>;
+    std::vector<Eigen::Triplet<double, Eigen::Index>> edges;
+    for (AtomNetId net_id : atom_netlist.nets()) {
+        AtomBlockId driver = atom_netlist.net_driver_block(net_id);
+        if (!driver.is_valid()) {
+            continue;
+        }
+        for (AtomPinId sink_pin : atom_netlist.net_sinks(net_id)) {
+            AtomBlockId sink = atom_netlist.pin_block(sink_pin);
+            if (sink == driver) {
+                continue;
+            }
+            edges.emplace_back(atom_indices[driver], atom_indices[sink], 1.);
+            edges.emplace_back(atom_indices[sink], atom_indices[driver], 1.);
+        }
+    }
+    if (edges.empty()) {
+        return;
+    }
+    SparseMatrix adjacency(num_atoms, num_atoms);
+    adjacency.setFromTriplets(edges.begin(), edges.end());
+    edges.clear();
+    edges.shrink_to_fit();
+
+    Eigen::VectorXd scores = Eigen::VectorXd::Ones(num_atoms);
+    // Keep isolated atoms at zero, including when the iteration limit is reached.
+    for (Eigen::Index index = 0; index < num_atoms; ++index) {
+        if (adjacency.innerVector(index).nonZeros() == 0) {
+            scores[index] = 0.;
+        }
+    }
+    scores.normalize();
+    Eigen::VectorXd product(num_atoms);
+    constexpr int MAX_ITERATIONS = 1000;
+    constexpr double TOLERANCE = 1e-6;
+    bool converged = false;
+    for (int iteration = 0; iteration < MAX_ITERATIONS; ++iteration) {
+        product.noalias() = adjacency * scores;
+        double eigenvalue = scores.dot(product);
+        if ((product - eigenvalue * scores).norm() <= TOLERANCE * product.norm()) {
+            converged = true;
+            break;
+        }
+        // A positive diagonal shift preserves eigenvectors and prevents the
+        // sign oscillation of unshifted power iteration on bipartite graphs.
+        scores = product + eigenvalue * scores;
+        scores.normalize();
+    }
+    if (!converged) {
+        VTR_LOG_WARN("Atom eigenvector centrality did not converge after %d iterations; using approximate scores.\n", MAX_ITERATIONS);
+    }
+    for (AtomBlockId atom_id : atom_netlist.blocks()) {
+        centrality_[atom_id] = static_cast<float>(scores[atom_indices[atom_id]]);
+    }
+#else
+    (void)atom_netlist;
+    VPR_FATAL_ERROR(VPR_ERROR_PACK, "Atom eigenvector centrality requires VPR built with Eigen support");
+#endif
+}
+
+float AtomEigenvectorCentrality::get_centrality(AtomBlockId atom_id) const {
+    VTR_ASSERT(atom_id.is_valid() && size_t(atom_id) < centrality_.size());
+    VTR_ASSERT(centrality_[atom_id] >= 0.f);
+    return centrality_[atom_id];
+}
 
 /**
  * @brief Helper method that computes the seed gain of the given atom block.
@@ -37,7 +130,8 @@ static inline float get_seed_gain(AtomBlockId blk_id,
                                   const LogicalModels& models,
                                   const e_cluster_seed seed_type,
                                   const t_molecule_stats& max_molecule_stats,
-                                  const vtr::vector<AtomBlockId, float>& atom_criticality) {
+                                  const vtr::vector<AtomBlockId, float>& atom_criticality,
+                                  const std::optional<AtomEigenvectorCentrality>& atom_centrality) {
     switch (seed_type) {
         // By criticality.
         // Intuition: starting a cluster with primitives that have timing-
@@ -87,6 +181,7 @@ static inline float get_seed_gain(AtomBlockId blk_id,
             return molecule_stats.num_input_pins;
         }
         case e_cluster_seed::BLEND2: {
+            VTR_ASSERT(atom_centrality.has_value());
             PackMoleculeId mol_id = prepacker.get_atom_molecule(blk_id);
             const t_molecule_stats molecule_stats = prepacker.calc_molecule_stats(mol_id, atom_netlist, models);
 
@@ -98,15 +193,17 @@ static inline float get_seed_gain(AtomBlockId blk_id,
             float used_ext_output_pin_ratio = vtr::safe_ratio<float>(molecule_stats.num_used_ext_outputs, max_molecule_stats.num_used_ext_outputs);
             float num_blocks_ratio = vtr::safe_ratio<float>(molecule_stats.num_blocks, max_molecule_stats.num_blocks);
             float criticality = atom_criticality[blk_id];
+            float centrality_ratio = vtr::safe_ratio<float>(atom_centrality->get_centrality(blk_id), max_molecule_stats.max_eigenvector_centrality);
 
             constexpr float PIN_WEIGHT = 0.;
-            constexpr float INPUT_PIN_WEIGHT = 0.5;
+            constexpr float INPUT_PIN_WEIGHT = 0.4;
             constexpr float OUTPUT_PIN_WEIGHT = 0.;
             constexpr float USED_PIN_WEIGHT = 0.;
             constexpr float USED_INPUT_PIN_WEIGHT = 0.2;
             constexpr float USED_OUTPUT_PIN_WEIGHT = 0.;
             constexpr float BLOCKS_WEIGHT = 0.2;
             constexpr float CRITICALITY_WEIGHT = 0.1;
+            constexpr float CENTRALITY_WEIGHT = 0.1;
 
             float gain = PIN_WEIGHT * pin_ratio
                          + INPUT_PIN_WEIGHT * input_pin_ratio
@@ -117,7 +214,8 @@ static inline float get_seed_gain(AtomBlockId blk_id,
                          + USED_OUTPUT_PIN_WEIGHT * used_ext_output_pin_ratio
 
                          + BLOCKS_WEIGHT * num_blocks_ratio
-                         + CRITICALITY_WEIGHT * criticality;
+                         + CRITICALITY_WEIGHT * criticality
+                         + CENTRALITY_WEIGHT * centrality_ratio;
 
             return gain;
         }
@@ -175,12 +273,22 @@ static inline void print_seed_gains(const char* fname,
 GreedySeedSelector::GreedySeedSelector(const AtomNetlist& atom_netlist,
                                        const Prepacker& prepacker,
                                        const e_cluster_seed seed_type,
-                                       const t_molecule_stats& max_molecule_stats,
+                                       t_molecule_stats max_molecule_stats,
                                        const LogicalModels& models,
                                        const PreClusterTimingManager& pre_cluster_timing_manager,
                                        const RamMapper& ram_mapper)
     : seed_mols_(prepacker.molecules().begin(), prepacker.molecules().end()) {
     // Seed molecule list is initialized with all molecule in the netlist.
+
+    std::optional<AtomEigenvectorCentrality> atom_centrality;
+    if (seed_type == e_cluster_seed::BLEND2) {
+        atom_centrality.emplace(atom_netlist);
+        max_molecule_stats.max_eigenvector_centrality = 0.f;
+        for (AtomBlockId atom_id : atom_netlist.blocks()) {
+            max_molecule_stats.max_eigenvector_centrality = std::max(max_molecule_stats.max_eigenvector_centrality,
+                                                                     atom_centrality->get_centrality(atom_id));
+        }
+    }
 
     // Pre-compute the criticality of each atom
     // Default criticalities set to zero (e.g. if not timing driven)
@@ -214,7 +322,8 @@ GreedySeedSelector::GreedySeedSelector(const AtomNetlist& atom_netlist,
                                             models,
                                             seed_type,
                                             max_molecule_stats,
-                                            atom_criticality);
+                                            atom_criticality,
+                                            atom_centrality);
             mol_gain = std::max(mol_gain, atom_gain);
         }
         molecule_gains[mol_id] = mol_gain;

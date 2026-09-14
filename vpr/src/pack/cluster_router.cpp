@@ -35,6 +35,7 @@
 #include "atom_netlist.h"
 #include "vpr_utils.h"
 #include "pack_types.h"
+#include "packing_graph_writer.h"
 #include "pb_type_graph.h"
 #include "lb_type_rr_graph.h"
 #include "cluster_router.h"
@@ -577,6 +578,8 @@ bool ClusterRouter::try_intra_lb_route(int verbosity,
             reset_lb_net_rt(intra_lb_nets_[inet].rt_tree);
         }
     }
+
+    write_packing_graph(lb_type_->name, atoms_added_, intra_lb_nets_, *lb_type_graph_, is_impossible, is_routed, *mode_status);
     return is_routed;
 }
 

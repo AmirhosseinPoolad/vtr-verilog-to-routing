@@ -1249,6 +1249,10 @@ static AtomBlockId get_driving_block(const AtomBlockId block_id,
 static std::unordered_set<t_pb_type*> get_pattern_blocks(const t_pack_patterns& pack_pattern) {
     std::unordered_set<t_pb_type*> pattern_blocks;
 
+    // The root block belongs to the pattern even if it has no connection to another block
+    // of the pattern (e.g. a chain with a single primitive per cluster).
+    pattern_blocks.insert(const_cast<t_pb_type*>(pack_pattern.root_block->pb_type)); // only used for lookups
+
     const std::vector<t_pack_pattern_connections>& root_connections = pack_pattern.root_block->connections;
     if (root_connections.empty()) {
         return pattern_blocks;
@@ -1280,8 +1284,11 @@ static std::unordered_set<t_pb_type*> get_pattern_blocks(const t_pack_patterns& 
             visited_from_pins.insert(current_connenction.from_pin);
             visited_to_pins.insert(current_connenction.to_pin);
 
-            /* The from_pin block belongs to the pattern block */
+            /* Both blocks of the connection belong to the pattern. A block that only drives no
+             * other block of the pattern (e.g. the last primitive of a chain) would otherwise be
+             * missed. */
             pattern_blocks.insert(current_connenction.from_pin->port->parent_pb_type);
+            pattern_blocks.insert(current_connenction.to_pin->port->parent_pb_type);
             pack_pattern_blocks.push(current_connenction.to_block);
         }
     }

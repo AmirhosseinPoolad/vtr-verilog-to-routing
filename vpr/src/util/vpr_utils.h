@@ -181,6 +181,15 @@ AtomPinId find_atom_pin(ClusterBlockId blk_id, const t_pb_graph_pin* pb_gpin);
 //Returns the logical block type which is most common in the device grid
 t_logical_block_type_ptr find_most_common_block_type(const DeviceGrid& grid);
 
+/**
+ * @brief Returns how many blocks of a logical block type the device grid can hold.
+ *
+ * Only the sub tiles whose equivalent sites include the type count: a physical tile with
+ * heterogeneous sub tiles (e.g. a logic site and an I/O site) holds as many blocks of each
+ * type as its sub tiles for that type allow, not its total capacity.
+ */
+size_t num_logical_block_instances(const DeviceGrid& grid, t_logical_block_type_ptr type);
+
 //Returns the physical tile type which is most common in the device grid
 t_physical_tile_type_ptr find_most_common_tile_type(const DeviceGrid& grid);
 

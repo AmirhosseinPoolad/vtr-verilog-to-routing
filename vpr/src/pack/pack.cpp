@@ -25,6 +25,7 @@
 #include "vpr_types.h"
 #include "vtr_assert.h"
 #include "vtr_log.h"
+#include "vpr_utils.h"
 
 namespace {
 
@@ -583,9 +584,7 @@ bool try_pack(const t_packer_opts& packer_opts,
 
                 resource_reqs += iter->first->name + ": " + std::to_string(iter->second);
 
-                int num_instances = 0;
-                for (const t_physical_tile_type_ptr type : iter->first->equivalent_tiles)
-                    num_instances += grid.num_instances(type, -1);
+                size_t num_instances = num_logical_block_instances(grid, iter->first);
 
                 resource_avail += iter->first->name + ": " + std::to_string(num_instances);
             }
@@ -673,10 +672,7 @@ bool try_size_device_grid(const t_arch& arch,
         float num_instances = itr->second;
         float util = 0.;
 
-        float num_total_instances = 0.;
-        for (const t_physical_tile_type_ptr equivalent_tile : type.equivalent_tiles) {
-            num_total_instances += device_ctx.grid.num_instances(equivalent_tile, -1);
-        }
+        float num_total_instances = num_logical_block_instances(device_ctx.grid, &type);
 
         if (num_total_instances != 0) {
             util = num_instances / num_total_instances;

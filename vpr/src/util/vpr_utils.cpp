@@ -627,6 +627,25 @@ t_logical_block_type_ptr find_most_common_block_type(const DeviceGrid& grid) {
     return max_type;
 }
 
+size_t num_logical_block_instances(const DeviceGrid& grid, t_logical_block_type_ptr type) {
+    size_t num_blocks = 0;
+    for (t_physical_tile_type_ptr tile : type->equivalent_tiles) {
+        if (tile->capacity == 0) {
+            continue;
+        }
+        // num_instances() counts each tile at its total capacity (all sub tiles).
+        size_t num_tiles = grid.num_instances(tile, -1) / tile->capacity;
+        size_t slots = 0;
+        for (const t_sub_tile& sub_tile : tile->sub_tiles) {
+            if (std::ranges::find(sub_tile.equivalent_sites, type) != sub_tile.equivalent_sites.end()) {
+                slots += sub_tile.capacity.total();
+            }
+        }
+        num_blocks += num_tiles * slots;
+    }
+    return num_blocks;
+}
+
 t_physical_tile_type_ptr find_most_common_tile_type(const DeviceGrid& grid) {
     auto& device_ctx = g_vpr_ctx.device();
 

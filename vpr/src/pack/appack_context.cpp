@@ -22,10 +22,7 @@
  */
 static size_t count_available_instances(const t_logical_block_type& type,
                                         const DeviceGrid& device_grid) {
-    size_t num_instances = 0;
-    for (const t_physical_tile_type_ptr equivalent_tile : type.equivalent_tiles)
-        num_instances += device_grid.num_instances(equivalent_tile, -1);
-    return num_instances;
+    return num_logical_block_instances(device_grid, &type);
 }
 
 /**

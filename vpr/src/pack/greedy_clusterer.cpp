@@ -55,6 +55,7 @@
 #include "logical_ram_infer.h"
 #include "vpr_context.h"
 #include "vtr_math.h"
+#include "vpr_utils.h"
 
 namespace {
 
@@ -534,10 +535,7 @@ LegalizationClusterId GreedyClusterer::start_new_cluster_(
 
     /* Expand FPGA size if needed */
     // Check used type instances against the possible equivalent physical locations
-    unsigned int num_instances = 0;
-    for (auto equivalent_tile : block_type->equivalent_tiles) {
-        num_instances += mutable_device_ctx.grid.num_instances(equivalent_tile, -1);
-    }
+    size_t num_instances = num_logical_block_instances(mutable_device_ctx.grid, block_type);
 
     if (!has_fixed_device_size(vpr_setup_)
         && num_used_type_instances[block_type] > num_instances) {

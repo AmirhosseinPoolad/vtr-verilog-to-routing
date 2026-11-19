@@ -472,6 +472,7 @@ void FlatRecon::self_clustering(ClusterLegalizer& cluster_legalizer,
         // Check legality of clusters created with fast pass. Store the
         // illegal cluster molecules for full strategy pass.
         std::vector<PackMoleculeId> illegal_cluster_mols;
+        std::vector<LegalizationClusterId> legal_clusters;
         for (LegalizationClusterId cluster_id : created_clusters) {
             if (!cluster_legalizer.check_cluster_legality(cluster_id)) {
                 for (PackMoleculeId mol_id : cluster_legalizer.get_cluster_molecules(cluster_id)) {
@@ -482,12 +483,15 @@ void FlatRecon::self_clustering(ClusterLegalizer& cluster_legalizer,
                 cluster_legalizer.destroy_cluster(cluster_id);
                 tile_clusters_matrix[tile_loc.layer_num][tile_loc.x][tile_loc.y].erase(cluster_id);
             } else {
-                cluster_legalizer.clean_cluster(cluster_id);
+                legal_clusters.push_back(cluster_id);
             }
         }
 
         // If there are any illegal molecules, set the legalization strategy to
         // full and try to cluster the unclustered molecules in same tile again.
+        // The full pass may add molecules to the legal clusters of this tile,
+        // so these are cleaned only afterwards (a cleaned cluster has no
+        // placement stats, which is_molecule_compatible needs).
         if (!illegal_cluster_mols.empty()) {
             cluster_legalizer.set_legalization_strategy(ClusterLegalizationStrategy::FULL);
             created_clusters = cluster_molecules_in_tile(tile_loc,
@@ -499,6 +503,9 @@ void FlatRecon::self_clustering(ClusterLegalizer& cluster_legalizer,
             for (LegalizationClusterId cluster_id : created_clusters) {
                 cluster_legalizer.clean_cluster(cluster_id);
             }
+        }
+        for (LegalizationClusterId cluster_id : legal_clusters) {
+            cluster_legalizer.clean_cluster(cluster_id);
         }
     }
 }

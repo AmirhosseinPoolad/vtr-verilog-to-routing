@@ -9,6 +9,7 @@
 
 #include "full_legalizer.h"
 
+#include <algorithm>
 #include <cstring>
 #include <list>
 #include <memory>
@@ -264,11 +265,15 @@ class APClusterPlacer {
  *                                          the cluster.
  *  @param primitive_candidate_block_types  A list of candidate block types for
  *                                          the given molecule.
+ *  @param preferred_type                   If not null, the block type to try
+ *                                          first (e.g. the type the cluster's
+ *                                          tile can implement).
  */
 static LegalizationClusterId create_new_cluster(PackMoleculeId seed_molecule_id,
                                                 const Prepacker& prepacker,
                                                 ClusterLegalizer& cluster_legalizer,
-                                                const vtr::vector<LogicalModelId, std::vector<t_logical_block_type_ptr>>& primitive_candidate_block_types) {
+                                                const vtr::vector<LogicalModelId, std::vector<t_logical_block_type_ptr>>& primitive_candidate_block_types,
+                                                t_logical_block_type_ptr preferred_type = nullptr) {
     const AtomContext& atom_ctx = g_vpr_ctx.atom();
     // This was stolen from pack/cluster_util.cpp:start_new_cluster
     // It tries to find a block type and mode for the given molecule.
@@ -283,7 +288,10 @@ static LegalizationClusterId create_new_cluster(PackMoleculeId seed_molecule_id,
 
     VTR_ASSERT(root_model_id.is_valid());
     VTR_ASSERT(!primitive_candidate_block_types[root_model_id].empty());
-    const std::vector<t_logical_block_type_ptr>& candidate_types = primitive_candidate_block_types[root_model_id];
+    std::vector<t_logical_block_type_ptr> candidate_types = primitive_candidate_block_types[root_model_id];
+    auto preferred = std::find(candidate_types.begin(), candidate_types.end(), preferred_type);
+    if (preferred != candidate_types.end())
+        std::rotate(candidate_types.begin(), preferred, preferred + 1);
 
     for (t_logical_block_type_ptr type : candidate_types) {
         int num_modes = type->pb_graph_head->pb_type->num_modes;
@@ -307,11 +315,15 @@ static LegalizationClusterId create_new_cluster(PackMoleculeId seed_molecule_id,
  *  @param mol_id                           The molecule id to get its logical block type.
  *  @param prepacker                        The prepacker used to get molecule from its id.
  *  @param primitive_candidate_block_types  Candidate logical block types for the given molecule.
+ *  @param tile_type                        The tile the molecule is to be placed in:
+ *                                          the first candidate type compatible with it is
+ *                                          returned, else the first candidate type.
  *
  */
 static t_logical_block_type_ptr infer_molecule_logical_block_type(PackMoleculeId mol_id,
                                                                   const Prepacker& prepacker,
-                                                                  const vtr::vector<LogicalModelId, std::vector<t_logical_block_type_ptr>>& primitive_candidate_block_types) {
+                                                                  const vtr::vector<LogicalModelId, std::vector<t_logical_block_type_ptr>>& primitive_candidate_block_types,
+                                                                  t_physical_tile_type_ptr tile_type) {
     // Get the root atom and its model id. Ensure that both is valid.
     const AtomContext& atom_ctx = g_vpr_ctx.atom();
     const t_pack_molecule& molecule = prepacker.get_molecule(mol_id);
@@ -320,8 +332,14 @@ static t_logical_block_type_ptr infer_molecule_logical_block_type(PackMoleculeId
     LogicalModelId root_model_id = atom_ctx.netlist().block_model(root_atom);
     VTR_ASSERT(root_model_id.is_valid());
 
-    // Get the first candidate type.
+    // Get the first candidate type the tile can implement. A molecule can have
+    // several candidate types (e.g. a primitive that is also in a site group
+    // of another tile type): the first one may not fit its tile.
     const auto& candidate_types = primitive_candidate_block_types[root_model_id];
+    for (t_logical_block_type_ptr type : candidate_types) {
+        if (is_tile_compatible(tile_type, type))
+            return type;
+    }
     if (!candidate_types.empty()) {
         return candidate_types.front();
     }
@@ -401,7 +419,7 @@ FlatRecon::cluster_molecules_in_tile(const t_physical_tile_loc& tile_loc,
     std::unordered_set<LegalizationClusterId> created_clusters;
     for (PackMoleculeId mol_id : tile_molecules) {
         // Get the block type for compatibility check.
-        t_logical_block_type_ptr block_type = infer_molecule_logical_block_type(mol_id, prepacker_, primitive_candidate_block_types);
+        t_logical_block_type_ptr block_type = infer_molecule_logical_block_type(mol_id, prepacker_, primitive_candidate_block_types, tile_type);
 
         // Go over all subtiles at this tile, trying to insert each molecule that
         // is supposed to be in that tile in the first existing cluster that can
@@ -422,7 +440,7 @@ FlatRecon::cluster_molecules_in_tile(const t_physical_tile_loc& tile_loc,
                     break;
             } else if (is_tile_compatible(tile_type, block_type)) {
                 // Create new cluster
-                LegalizationClusterId new_id = create_new_cluster(mol_id, prepacker_, cluster_legalizer, primitive_candidate_block_types);
+                LegalizationClusterId new_id = create_new_cluster(mol_id, prepacker_, cluster_legalizer, primitive_candidate_block_types, block_type);
                 created_clusters.insert(new_id);
                 cluster_locs[new_id] = loc;
                 loc_to_cluster_id_placed[loc] = new_id;
@@ -559,6 +577,7 @@ FlatRecon::neighbor_clustering(ClusterLegalizer& cluster_legalizer,
 
                     // Get the cluster molecules and destroy the old cluster.
                     std::vector<PackMoleculeId> cluster_molecules = cluster_legalizer.get_cluster_molecules(cluster_id);
+                    t_logical_block_type_ptr cluster_type = cluster_legalizer.get_cluster_type(cluster_id);
                     cluster_legalizer.destroy_cluster(cluster_id);
 
                     // Set the legalization strategy to speculative for fast try.
@@ -566,7 +585,7 @@ FlatRecon::neighbor_clustering(ClusterLegalizer& cluster_legalizer,
 
                     // Use the first molecule as seed to recreate the cluster.
                     PackMoleculeId seed_mol = cluster_molecules[0];
-                    LegalizationClusterId new_cluster_id = create_new_cluster(seed_mol, prepacker_, cluster_legalizer, primitive_candidate_block_types);
+                    LegalizationClusterId new_cluster_id = create_new_cluster(seed_mol, prepacker_, cluster_legalizer, primitive_candidate_block_types, cluster_type);
 
                     // Add remaining old molecules to the new cluster.
                     for (PackMoleculeId mol_id : cluster_molecules) {
@@ -584,7 +603,7 @@ FlatRecon::neighbor_clustering(ClusterLegalizer& cluster_legalizer,
                     // If recreated cluster is illegal, try again with full strategy.
                     if (!cluster_legalizer.check_cluster_legality(new_cluster_id)) {
                         cluster_legalizer.destroy_cluster(new_cluster_id);
-                        new_cluster_id = create_new_cluster(seed_mol, prepacker_, cluster_legalizer, primitive_candidate_block_types);
+                        new_cluster_id = create_new_cluster(seed_mol, prepacker_, cluster_legalizer, primitive_candidate_block_types, cluster_type);
                         for (PackMoleculeId mol_id : cluster_molecules) {
                             if (mol_id == seed_mol)
                                 continue;

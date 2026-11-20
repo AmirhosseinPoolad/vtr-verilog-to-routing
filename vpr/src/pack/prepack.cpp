@@ -121,7 +121,8 @@ static void update_chain_root_pins(t_pack_patterns* chain_pattern,
  */
 static void get_all_connected_primitive_pins(const t_pb_graph_pin* cluster_input_pin,
                                              const std::unordered_set<t_pb_type*>& pattern_blocks,
-                                             std::vector<t_pb_graph_pin*>& connected_primitive_pins);
+                                             std::vector<t_pb_graph_pin*>& connected_primitive_pins,
+                                             int pattern_index);
 
 static void init_molecule_chain_info(const AtomBlockId blk_id,
                                      t_pack_molecule& molecule,
@@ -1665,7 +1666,13 @@ static void update_chain_root_pins(t_pack_patterns* chain_pattern,
     std::unordered_set<t_pb_type*> pattern_blocks = get_pattern_blocks(*chain_pattern);
     for (t_pb_graph_pin* pin_ptr : chain_input_pins) {
         std::vector<t_pb_graph_pin*> connected_primitive_pins;
-        get_all_connected_primitive_pins(pin_ptr, pattern_blocks, connected_primitive_pins);
+        // Prefer the primitive pins the chain's own (annotated) edges reach: the cluster's chain
+        // input may also reach other primitives of the pattern through edges outside the
+        // pattern (e.g. a LUT's cascade input on the carry-in wire), which are not the chain's
+        // root. Fall back to every connected pattern primitive if no annotated path exists.
+        get_all_connected_primitive_pins(pin_ptr, pattern_blocks, connected_primitive_pins, chain_pattern->index);
+        if (connected_primitive_pins.empty())
+            get_all_connected_primitive_pins(pin_ptr, pattern_blocks, connected_primitive_pins, -1);
 
         /**
          * It is required that the chain pins are connected inside a complex
@@ -1691,7 +1698,8 @@ static void update_chain_root_pins(t_pack_patterns* chain_pattern,
  */
 static void get_all_connected_primitive_pins(const t_pb_graph_pin* cluster_input_pin,
                                              const std::unordered_set<t_pb_type*>& pattern_blocks,
-                                             std::vector<t_pb_graph_pin*>& connected_primitive_pins) {
+                                             std::vector<t_pb_graph_pin*>& connected_primitive_pins,
+                                             int pattern_index) {
     /* Skip pins for modes that are disabled for packing*/
     if ((nullptr != cluster_input_pin->parent_node->pb_type->parent_mode)
         && (true == cluster_input_pin->parent_node->pb_type->parent_mode->disable_packing)) {
@@ -1700,6 +1708,10 @@ static void get_all_connected_primitive_pins(const t_pb_graph_pin* cluster_input
 
     for (int iedge = 0; iedge < cluster_input_pin->num_output_edges; iedge++) {
         const t_pb_graph_edge* output_edge = cluster_input_pin->output_edges[iedge];
+        // With a pattern index: only the edges annotated with that pattern
+        if (pattern_index >= 0 && !output_edge->belongs_to_pattern(pattern_index)) {
+            continue;
+        }
         t_pb_graph_pin* out_pin = output_edge->output_pin();
         if (out_pin->is_primitive_pin()) {
             // Add the output pin to the vector only if it belongs to a pb_type registered in the pattern_blocks set
@@ -1707,7 +1719,7 @@ static void get_all_connected_primitive_pins(const t_pb_graph_pin* cluster_input
                 connected_primitive_pins.push_back(out_pin);
             }
         } else {
-            get_all_connected_primitive_pins(out_pin, pattern_blocks, connected_primitive_pins);
+            get_all_connected_primitive_pins(out_pin, pattern_blocks, connected_primitive_pins, pattern_index);
         }
     }
 }

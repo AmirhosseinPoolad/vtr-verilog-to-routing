@@ -301,19 +301,11 @@ static void get_channel_occupancy_stats(const Netlist<>& net_list) {
     const size_t height = grid.height();
     const size_t num_layers = grid.get_num_layers();
 
-    auto chanx_occ = vtr::NdMatrix<int, 3>({{
-                                               num_layers,
-                                               width,     // Length of each x channel
-                                               height - 1 // Total number of x channels. There is no CHANX above the top row.
-                                           }},
-                                           0);
-
-    auto chany_occ = vtr::NdMatrix<int, 3>({{
-                                               num_layers,
-                                               width - 1, // Total number of y channels. There is no CHANY to the right of the most right column.
-                                               height     // Length of each y channel.
-                                           }},
-                                           0);
+    // Sized like rr_chan_segment_width (the capacities these are reported against): a
+    // routing resource graph read from a file may have a CHANX in the top row or a CHANY in
+    // the rightmost column, even though VPR's own graph builders create neither.
+    auto chanx_occ = vtr::NdMatrix<int, 3>({{num_layers, width, height}}, 0);
+    auto chany_occ = vtr::NdMatrix<int, 3>({{num_layers, width, height}}, 0);
 
     vtr::NdMatrix<int, 3> chanz_occ;
     if (num_layers > 1) {
